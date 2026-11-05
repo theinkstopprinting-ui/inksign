@@ -37,6 +37,12 @@ function init(userDataDir) {
     devices = drivers.presets.shopDefaults.map((d) => deviceFromPreset(d.presetId, d.name));
     writeJson('devices.json', devices);
   }
+  // Xerox set up before the print server: tell InkSign which printer description (PPD) it uses
+  let migrated = false;
+  for (const d of devices) {
+    if (d.presetId === 'xerox-7845' && !d.config?.model) { d.config = { ...d.config, model: 'xerox-7845' }; migrated = true; }
+  }
+  if (migrated) writeJson('devices.json', devices);
   jobs = readJson('jobs.json', []);
 }
 
@@ -97,6 +103,18 @@ const DEFAULT_SETTINGS = {
     { name: 'Wallpaper', costPerSqFt: 1.1, inkMlPerSqFt: 1.0 },
   ],
   inkCostPerMl: 0.2,
+  // Paper catalog for the Xerox print server (Fiery-style). Types are the Xerox 7845 driver's media
+  // types — match each to what the stock is programmed as at the Xerox tray.
+  paperCatalog: [
+    { id: 'pc-letter-bond', name: 'Letter 24# bond', size: 'Letter', type: 'Plain', color: 'White', weightGsm: 90, coated: false, tray: 'auto', costPerSheet: 0.02 },
+    { id: 'pc-letter-gloss-text', name: 'Letter 100# gloss text', size: 'Letter', type: 'LightweightGlossyCardstock', color: 'White', weightGsm: 148, coated: true, tray: 'auto', costPerSheet: 0.08 },
+    { id: 'pc-letter-cover', name: 'Letter 80# cover', size: 'Letter', type: 'ThinCardStock', color: 'White', weightGsm: 216, coated: false, tray: 'auto', costPerSheet: 0.12 },
+    { id: 'pc-tabloid-text', name: '11x17 70# text', size: 'Tabloid', type: 'Plain', color: 'White', weightGsm: 104, coated: false, tray: 'auto', costPerSheet: 0.06 },
+    { id: 'pc-tabloid-gloss', name: '11x17 100# gloss text', size: 'Tabloid', type: 'LightweightGlossyCardstock', color: 'White', weightGsm: 148, coated: true, tray: 'auto', costPerSheet: 0.16 },
+    { id: 'pc-12x18-gloss-cover', name: '12x18 100# gloss cover', size: '12x18', type: 'HeavyweightGlossyCardstock', color: 'White', weightGsm: 270, coated: true, tray: 'auto', costPerSheet: 0.35 },
+    { id: 'pc-12x18-14pt', name: '12x18 14pt card (business cards)', size: '12x18', type: 'HeavyweightCardstock', color: 'White', weightGsm: 300, coated: false, tray: 'Tray5', costPerSheet: 0.4 },
+    { id: 'pc-letter-labels', name: 'Letter labels', size: 'Letter', type: 'Labels', color: 'White', weightGsm: null, coated: false, tray: 'auto', costPerSheet: 0.3 },
+  ],
   inkflow: { url: '', secret: '', autoReport: true },
   updateUrl: '',
   watchFolders: [],

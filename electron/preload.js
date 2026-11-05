@@ -102,6 +102,7 @@ contextBridge.exposeInMainWorld('inksign', {
     impose: (src, opts) => ipcRenderer.invoke('press:impose', src, opts),
     send: (deviceId, src, opts, job) => ipcRenderer.invoke('press:send', deviceId, src, opts, job),
     save: (src, opts, name) => ipcRenderer.invoke('press:save', src, opts, name),
+    toServer: (src, props, job) => ipcRenderer.invoke('press:toServer', src, props, job),
   },
   printcut: {
     openImages: () => ipcRenderer.invoke('files:openImages'),
@@ -112,6 +113,29 @@ contextBridge.exposeInMainWorld('inksign', {
   settings: {
     get: () => ipcRenderer.invoke('settings:get'),
     save: (patch) => ipcRenderer.invoke('settings:save', patch),
+  },
+  // InkSign Print Server (Fiery-style, for the Xerox) — this PC's server or the one on another PC
+  server: {
+    info: () => ipcRenderer.invoke('srv:info'),
+    saveConfig: (patch) => ipcRenderer.invoke('srv:saveConfig', patch),
+    newKey: () => ipcRenderer.invoke('srv:newKey'),
+    test: (address, key) => ipcRenderer.invoke('srv:test', address, key),
+    state: () => ipcRenderer.invoke('srv:state'),
+    capabilities: () => ipcRenderer.invoke('srv:capabilities'),
+    action: (id, act, arg) => ipcRenderer.invoke('srv:action', id, act, arg),
+    setProps: (id, props, name) => ipcRenderer.invoke('srv:setProps', id, props, name),
+    preview: (id, props) => ipcRenderer.invoke('srv:preview', id, props),
+    check: (props) => ipcRenderer.invoke('srv:check', props),
+    thumb: (id) => ipcRenderer.invoke('srv:thumb', id),
+    saveCatalog: (list) => ipcRenderer.invoke('srv:saveCatalog', list),
+    saveTrays: (trays) => ipcRenderer.invoke('srv:saveTrays', trays),
+    pause: (v) => ipcRenderer.invoke('srv:pause', v),
+    submit: (job) => ipcRenderer.invoke('srv:submit', job),
+    importFiles: (opts) => ipcRenderer.invoke('srv:import', opts),
+    exportPdf: (id, name) => ipcRenderer.invoke('srv:export', id, name),
+    addPrinters: (opts) => ipcRenderer.invoke('srv:addPrinters', opts),
+    firewall: () => ipcRenderer.invoke('srv:firewall'),
+    onChange: (cb) => { const h = (_e, j) => cb(j); ipcRenderer.on('srv:changed', h); return () => ipcRenderer.removeListener('srv:changed', h); },
   },
   files: {
     saveJob: (name, data) => ipcRenderer.invoke('files:saveJob', name, data),

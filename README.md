@@ -1,10 +1,10 @@
-# InkSign — v1.0
+# InkSign — v1.1
 
 Sign-shop RIP & cut program for The Ink Stop: vinyl cutting (Graphtec CE6000-60 Plus, US Cutter Titan 3),
 print & cut, HP Latex 335 / 115 jobs through Flexi 22, and Xerox 7845 imposition — working from InkFlow orders.
 
 ## Install
-Run **InkSign-Setup-1.0.0.exe** on each shop PC (Windows may say it protected your PC: **More info → Run anyway**).
+Run **InkSign-Setup-1.1.0.exe** on each shop PC (Windows may say it protected your PC: **More info → Run anyway**).
 It adds InkSign to the desktop and Start menu. Installing a newer version over an old one keeps all devices, jobs and settings
 (stored in `%APPDATA%\InkSign`).
 
@@ -15,13 +15,47 @@ It adds InkSign to the desktop and Start menu. Installing a newer version over a
 | **Cut Studio** | Vinyl: import SVG / PDF / AI / DXF, trace PNG/JPG logos, text in any installed font (straight or on an arc), shapes, outline/offset, colors cut as separate jobs, copies, nesting, weed border & lines, tiling, materials with force/speed, price estimate, save/open `.inksign` jobs. Zoom with the scroll wheel. |
 | **Print & Cut** | PNG/JPG stickers: contour (or shape) cut lines, fills the sheet or roll. *InkSign marks*: print on the Xerox **or an HP**, cut on your cutter — long HP rolls get a fresh set of 4 marks every few feet (segments). *HP through Flexi*: the PDF carries a **CutContour** spot color for Flexi's own print & cut. Built-in **alignment test** per cutter. |
 | **Wide Format (HP)** | Banners/signs/canvas: nests on the roll, tiles oversize jobs, hems + grommet marks, canvas wrap, per-media Flexi hot folders, media/ink/cost before printing. |
-| **Press (Xerox)** | Step & repeat cards/postcards (front + back), N-up, saddle-stitch booklets, crop marks & bleed, quantity → sheets, tray / paper / duplex / B&W, **Hold** until released. |
+| **Press (Xerox)** | Step & repeat cards/postcards (front + back), N-up, saddle-stitch booklets, crop marks & bleed, quantity → sheets, paper from the paper catalog, staple / booklet fold / punch, B&W — sent to the Xerox Server. |
+| **Xerox Server** | Fiery-style print server for the Xerox 7845 (see below): Printing / Held / Printed queues, job properties, paper catalog, mixed media, imposition, color, finisher. |
 | **Devices** | Your machines, status, test cut / test print, settings, **Maintenance** (blade changes, cleanings… due by days, meters cut or sq ft printed). **+ Add device** for new cutters and printers. |
 | **Job queue** | Everything sent, with retry and release for held jobs. |
 | **History** | Every job ever sent, who sent it, and **Reprint** (to the same or another machine) while the file is kept. |
 | **Rolls & stock** | Your InkFlow sign rolls and feet left; low rolls flagged for reorder. |
 | **Usage** | Media and ink per job, by printer and media, plus labor timers; CSV export. |
 | **Settings** | InkFlow link, watch folders, people & PINs, phone view, shared setup between PCs, updates. |
+
+## Xerox Server — Fiery-style print server for the WorkCentre 7845 (new in 1.1)
+Works like Fiery Command WorkStation. One PC (the one by the Xerox) **is** the server; InkSign on every other shop PC connects to it and sees the same jobs.
+
+**Exact Xerox commands.** InkSign carries Xerox's own 7845 printer description (PPD 5.482, from Xerox's driver download).
+Every job is turned into PostScript (Ghostscript, built in — nothing to install) and gets the same commands Xerox's driver sends:
+trays 1–6 (5 = bypass), 35 paper sizes + custom (3.46–13" × 3.86–19.2"), 32 paper types, 22 paper colors, 2-sided (long/short edge),
+collate, staple (1 portrait / 1 landscape / 2 / 4), booklet fold, booklet fold + staple, 2/3/4-hole punch, print quality, banner sheet,
+and the PJL job header (job name, owner, B&W billing). The driver's 1,110 rules (which papers can duplex, staple, fold, go in which tray…)
+are checked before anything prints — a job that breaks one stays Held with the reason.
+
+**Queues & actions.** *Printing* (waiting / processing / printing), *Held*, *Printed* (kept 30 days for reprints), *All*.
+Print, Hold, **Process & hold** (ready to go, prints instantly later), **Print next** (rush), **Proof** (1 copy, stays held), Properties,
+Preview (every sheet, front/back, with the paper it's on), Duplicate, Rename, Save PDF, Cancel, Remove, Pause printing. Search by job, person, paper or order.
+
+**Job properties.** Job info (name, copies, collate, notes) · Media (paper catalog or by hand; sides; fit / fill / 100%, auto-rotate, rotate 180°) ·
+Layout (normal, N-up, step & repeat, booklet — bleed, gutter, crop marks) · Color & image (color / grayscale; optional InkSign color management
+with RGB/CMYK source, output profile per paper, rendering intent, pure-black text, overprint simulation; print quality) ·
+Finishing (staple, booklet fold, punch, collate, banner) · Mixed media (front/back covers on other stock, page ranges on other paper,
+blank inserts / slip sheets, chapter starts — 2-sided jobs get blank backs so each change starts a new sheet).
+
+**Paper catalog.** Every stock with its size, Xerox paper type, color, weight, coated, tray, ICC profile and cost per sheet; plus what's
+loaded in each tray (jobs on "Automatic" go to the tray holding that paper). Printed jobs add sheets × cost to Usage and the InkFlow order.
+
+**Getting jobs in.** Press page · Import (PDF / PostScript) · InkFlow orders (Press) · **Windows printers**: Xerox Server → Setup →
+*Add the InkSign printers* adds "InkSign 7845 - Hold" and "InkSign 7845 - Print" (with Xerox's 7845 PS3 driver, included) to any PC —
+print from Word, Acrobat, Illustrator; the driver's tray/paper/staple choices come through. Untouched Windows jobs print byte-for-byte as the driver made them.
+
+**Other shop PCs.** Install InkSign → Xerox Server → Setup → *Use the server on another PC* → server address + key (shown on the server PC).
+PCs that follow the shared setup connect automatically. On the server PC press *Allow through Windows Firewall* once (ports 8631, 9101, 9102).
+
+**Self-test.** `InkSign.exe --smoke-test=C:\temp\inksign-test.json` runs the whole server against a fake printer in a throw-away
+folder (never touches your setup or the real Xerox) and writes the results.
 
 ## Shop tools (new in 1.0)
 - **People & PINs** (Settings): add each person as Owner or Staff with a PIN, tick *Ask who's using InkSign*. Staff can run jobs; only owners change settings, devices, calibration, pricing and color profiles. Every job, timer and maintenance entry records who did it.
@@ -130,5 +164,6 @@ Optional: Settings → Updates → *Fully automatic* takes a web folder with `la
 - Xerox tray / paper type / duplex commands — check the first job comes from the right tray.
 
 ## Build from source
-`npm install` · `npm start` (run) · `npm test` (57 tests) · `npm run dist` (Windows installer).
+`npm install` · `npm start` (run) · `npm test` (75 tests) · `npm run dist` (Windows installer; on Linux needs Wine).
+Ghostscript is `@jspawn/ghostscript-wasm` (Ghostscript 9.56, AGPL). Xerox PPD driver files: `electron/printers/xerox-7845-ppd-driver/`.
 New cutter/printer models: one line in `electron/drivers/presets.js`; new kinds of machine: a driver in `electron/drivers/`.

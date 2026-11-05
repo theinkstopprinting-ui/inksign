@@ -15,7 +15,7 @@ const list = [
   { id: 'generic-flexi-printer', name: 'Other printer run by Flexi', maker: 'Generic', kind: 'printer', driver: 'flexi-hotfolder',
     config: {} },
   { id: 'xerox-7845', name: 'Xerox 7845', maker: 'Xerox', kind: 'printer', driver: 'network-printer',
-    config: { port: 9100, usePjl: true, testPaper: 'Letter' } },
+    config: { port: 9100, usePjl: true, testPaper: 'Letter', model: 'xerox-7845' } },
   { id: 'generic-network-printer', name: 'Other network printer (PDF/PS/PCL)', maker: 'Generic', kind: 'printer', driver: 'network-printer',
     config: {} },
 ];

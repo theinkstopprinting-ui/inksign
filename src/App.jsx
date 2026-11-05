@@ -14,6 +14,7 @@ import LoginScreen from './components/LoginScreen.jsx';
 import TimerWidget from './components/TimerWidget.jsx';
 import HistoryPage from './components/HistoryPage.jsx';
 import InventoryPage from './components/InventoryPage.jsx';
+import JobCenter from './components/server/JobCenter.jsx';
 
 const api = window.inksign;
 
@@ -23,6 +24,7 @@ const NAV = [
   ['printcut', 'Print & Cut'],
   ['wide', 'Wide Format (HP)'],
   ['press', 'Press (Xerox)'],
+  ['server', 'Xerox Server'],
   ['mockup', 'Mockup'],
   ['color', 'Color'],
   ['devices', 'Devices'],
@@ -125,13 +127,14 @@ export default function App() {
         <div style={{ display: tab === 'studio' ? 'contents' : 'none' }}><CutStudio devices={devices} jobs={jobs} incoming={incoming} onJobsSent={() => setTab('queue')} /></div>
         <div style={{ display: tab === 'printcut' ? 'contents' : 'none' }}><PrintCut devices={devices} incoming={incoming} onDevicesChanged={reloadDevices} /></div>
         <div style={{ display: tab === 'wide' ? 'contents' : 'none' }}><WideFormat devices={devices} incoming={incoming} onJobsSent={() => setTab('queue')} /></div>
-        <div style={{ display: tab === 'press' ? 'contents' : 'none' }}><Press devices={devices} incoming={incoming} onJobsSent={() => setTab('queue')} /></div>
+        <div style={{ display: tab === 'press' ? 'contents' : 'none' }}><Press devices={devices} incoming={incoming} onJobsSent={() => setTab('queue')} onServerSent={() => setTab('server')} /></div>
         <div style={{ display: tab === 'mockup' ? 'contents' : 'none' }}><Mockup /></div>
         {tab === 'orders' && <Orders openIn={openIn} focusOrder={focusOrder} goSettings={() => setTab('settings')} />}
         {tab === 'devices' && (
           <DevicesView catalog={catalog} devices={devices} reload={reloadDevices} jobs={jobs}
             onJobsSent={() => setTab('queue')} owner={owner} />
         )}
+        {tab === 'server' && <JobCenter owner={owner} active />}
         {tab === 'history' && <HistoryPage devices={devices} onJobsSent={() => setTab('queue')} />}
         {tab === 'inventory' && <InventoryPage />}
         {tab === 'queue' && <QueueView jobs={jobs} reload={reloadJobs} />}

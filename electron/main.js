@@ -10,6 +10,7 @@ const inkflow = require('./inkflow');
 const watchFolders = require('./watchFolders');
 const updates = require('./updates');
 const shop = require('./shop');
+const printSrv = require('./server');
 const { generate } = require('./lib/cutterLang');
 const { buildPrintCutPdf, toMarkOrigin, markDistances } = require('./lib/printCutPdf');
 const { impose } = require('./lib/impose');
@@ -17,11 +18,14 @@ const { layoutWide, buildWidePdf } = require('./lib/wideFormat');
 const { PDFDocument } = require('pdf-lib');
 
 let win = null;
+// Self-test of an installed copy: InkSign.exe --smoke-test=C:\path\result.json
+const smokeArg = process.argv.find((a) => a.startsWith('--smoke-test='));
+const smoke = smokeArg ? require('./smoke').start(smokeArg.slice('--smoke-test='.length)) : null;
 
 function createWindow() {
   win = new BrowserWindow({
     width: 1320, height: 860, minWidth: 980, minHeight: 640,
-    backgroundColor: '#121418', title: 'InkSign',
+    backgroundColor: '#121418', title: 'InkSign', show: !smoke,
     webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false },
   });
   win.removeMenu();
@@ -351,6 +355,13 @@ function registerIpc() {
     fs.writeFileSync(file, r.pdf);
     return queue.add({ deviceId, action: 'file', filePath: file, name: job.name, copies: job.copies, options: job.options, hold: job.hold, inkflow: job.inkflow });
   });
+  // Press page -> InkSign Print Server: the server imposes, applies paper / finishing / color and prints
+  ipcMain.handle('press:toServer', async (_e, src, props, job) => {
+    const { loadSource } = require('./lib/impose');
+    const doc = await loadSource(pressSource(src));
+    const pdf = src.ext === 'pdf' ? Buffer.from(src.base64, 'base64') : Buffer.from(await doc.save());
+    return printSrv.backend().submit({ name: job.name, user: shop.userName(), from: require('os').hostname(), props, hold: !!job.hold, inkflow: job.inkflow || null, pdf, source: 'press' });
+  });
   ipcMain.handle('press:save', async (_e, src, opts, name) => {
     const r = await impose(pressSource(src), opts);
     const out = await dialog.showSaveDialog(win, { title: 'Save imposed PDF', defaultPath: `${safe(name)} imposed.pdf`, filters: [{ name: 'PDF', extensions: ['pdf'] }] });
@@ -447,8 +458,22 @@ function handleLink(url) {
 }
 let pendingLink = process.argv.find((a) => /^inksign:\/\//i.test(a)) || null;
 
-if (!app.requestSingleInstanceLock()) {
+if (!smoke && !app.requestSingleInstanceLock()) {
   app.quit();
+} else if (smoke) {
+  app.whenReady().then(async () => {
+    await smoke.ready;
+    store.init(app.getPath('userData'));
+    smoke.configure(store);
+    queue.init(store, drivers, () => {}, () => {});
+    queue.setUserSource(() => shop.userName());
+    registerIpc();
+    shop.register(ipcMain);
+    shop.init({ store, queue, drivers, inkflow, app, dir: app.getPath('userData'), notice: () => {}, reloadUi: () => {} });
+    printSrv.init({ app, store, shop, inkflow, transports: T, ipcMain, dialog, getWin: () => win, notice: () => {} });
+    createWindow();
+    smoke.run({ getWin: () => win, printSrv, store });
+  });
 } else {
   app.on('second-instance', (_e, argv) => handleLink(argv.find((a) => /^inksign:\/\//i.test(a))));
   app.on('open-url', (e, url) => { e.preventDefault(); handleLink(url); });
@@ -482,6 +507,10 @@ if (!app.requestSingleInstanceLock()) {
       notice: (m) => { if (win && !win.isDestroyed()) win.webContents.send('app:notice', m); },
       reloadUi: () => { if (win && !win.isDestroyed()) win.webContents.send('app:reload'); },
     });
+    printSrv.init({
+      app, store, shop, inkflow, transports: T, ipcMain, dialog, getWin: () => win,
+      notice: (m) => { if (win && !win.isDestroyed()) win.webContents.send('app:notice', m); },
+    });
     updates.init((st) => { if (win && !win.isDestroyed()) win.webContents.send('updates:state', st); });
     const autoCheck = () => updates.check({ updateUrl: store.getSettings().updateUrl, inkflow: store.getSettings().inkflow }).catch(() => {});
     setTimeout(autoCheck, 8000);
@@ -491,3 +520,4 @@ if (!app.requestSingleInstanceLock()) {
 }
 
 app.on('window-all-closed', () => app.quit());
+app.on('before-quit', () => { try { printSrv.stopServer(); } catch { /* already stopped */ } });

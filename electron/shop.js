@@ -233,7 +233,7 @@ async function onJobDone(job) {
 // =============================================================================
 // Shared setup between shop PCs (a shared/network/Nextcloud folder)
 // =============================================================================
-const SHARED_SETTINGS = ['materials', 'pricing', 'wideMedia', 'colors', 'inkCostPerMl', 'iccProfiles', 'keepJobsDays'];
+const SHARED_SETTINGS = ['materials', 'pricing', 'wideMedia', 'colors', 'inkCostPerMl', 'iccProfiles', 'keepJobsDays', 'paperCatalog', 'printServerLink'];
 const LOCAL_DEVICE_KEYS = ['connection', 'printerName', 'comPort', 'baud', 'handshake'];
 const sharedDir = () => path.join(ctx.store.getSettings().shared?.folder || '', 'InkSign-shared');
 

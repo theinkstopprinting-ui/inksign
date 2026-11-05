@@ -1,0 +1,202 @@
+; PostScript(R) Print Driver INF file
+;
+; Xerox WorkCentre 7830/7835/7845/7855
+;
+; Copyright (c) 2000-2016 Xerox Corporation. All rights reserved.
+
+[Version]
+Signature="$Windows NT$"
+ClassGUID={4D36E979-E325-11CE-BFC1-08002BE10318}
+Class=Printer
+Provider="Xerox"
+CatalogFile=xrcdspy.cat
+DriverVer=01/13/2016,5482.0.0.0
+
+;
+; OEM URLS:
+;
+
+[OEM URLS]
+"Xerox"="http://www.xerox.com"
+
+;
+; Manufacturer and Models Sections 
+;
+
+[Manufacturer]
+"Xerox" = Models, NTx86, NTamd64, NTia64, NTx86.6.0, NTamd64.6.0, NTia64.6.0
+
+; =========
+; Pre-Vista
+; =========
+
+; x86, pre-Vista
+[Models.NTx86]
+"Xerox WorkCentre 7830 PS3" = DriverInstall_Pre_Vista_1
+
+"Xerox WorkCentre 7835 PS3" = DriverInstall_Pre_Vista_2
+
+"Xerox WorkCentre 7845 PS3" = DriverInstall_Pre_Vista_3
+
+"Xerox WorkCentre 7855 PS3" = DriverInstall_Pre_Vista_4
+
+; x64, pre-Vista
+[Models.NTamd64]
+"Xerox WorkCentre 7830 PS3" = DriverInstall_Pre_Vista_1
+
+"Xerox WorkCentre 7835 PS3" = DriverInstall_Pre_Vista_2
+
+"Xerox WorkCentre 7845 PS3" = DriverInstall_Pre_Vista_3
+
+"Xerox WorkCentre 7855 PS3" = DriverInstall_Pre_Vista_4
+
+; ia64, pre-Vista
+[Models.NTia64]
+"Xerox WorkCentre 7830 PS3" = DriverInstall_Pre_Vista_1
+
+"Xerox WorkCentre 7835 PS3" = DriverInstall_Pre_Vista_2
+
+"Xerox WorkCentre 7845 PS3" = DriverInstall_Pre_Vista_3
+
+"Xerox WorkCentre 7855 PS3" = DriverInstall_Pre_Vista_4
+
+; ===============
+; Vista and Above
+; ===============
+
+; x86, Vista and above
+[Models.NTx86.6.0]
+"Xerox WorkCentre 7830 PS3" = DriverInstall_Vista_1
+
+"Xerox WorkCentre 7835 PS3" = DriverInstall_Vista_2
+
+"Xerox WorkCentre 7845 PS3" = DriverInstall_Vista_3
+
+"Xerox WorkCentre 7855 PS3" = DriverInstall_Vista_4
+
+; x64, Vista and above
+[Models.NTamd64.6.0]
+"Xerox WorkCentre 7830 PS3" = DriverInstall_Vista_1
+
+"Xerox WorkCentre 7835 PS3" = DriverInstall_Vista_2
+
+"Xerox WorkCentre 7845 PS3" = DriverInstall_Vista_3
+
+"Xerox WorkCentre 7855 PS3" = DriverInstall_Vista_4
+
+; ia64, Vista and above
+[Models.NTia64.6.0]
+"Xerox WorkCentre 7830 PS3" = DriverInstall_Vista_1
+
+"Xerox WorkCentre 7835 PS3" = DriverInstall_Vista_2
+
+"Xerox WorkCentre 7845 PS3" = DriverInstall_Vista_3
+
+"Xerox WorkCentre 7855 PS3" = DriverInstall_Vista_4
+
+;
+; Driver Install - Pre-Vista
+;
+[DriverInstall_Pre_Vista_1]
+CopyFiles=@xrx7830.ppd
+
+DataFile=xrx7830.ppd
+DataSection=PSCRIPT_DATA
+Include=NTPRINT.INF
+Needs=PSCRIPT.OEM,PSCRIPT_DATA
+
+[DriverInstall_Pre_Vista_2]
+CopyFiles=@xrx7835.ppd
+
+DataFile=xrx7835.ppd
+DataSection=PSCRIPT_DATA
+Include=NTPRINT.INF
+Needs=PSCRIPT.OEM,PSCRIPT_DATA
+
+[DriverInstall_Pre_Vista_3]
+CopyFiles=@xrx7845.ppd
+
+DataFile=xrx7845.ppd
+DataSection=PSCRIPT_DATA
+Include=NTPRINT.INF
+Needs=PSCRIPT.OEM,PSCRIPT_DATA
+
+[DriverInstall_Pre_Vista_4]
+CopyFiles=@xrx7855.ppd
+
+DataFile=xrx7855.ppd
+DataSection=PSCRIPT_DATA
+Include=NTPRINT.INF
+Needs=PSCRIPT.OEM,PSCRIPT_DATA
+
+;
+; Driver Install - Vista and above
+;
+[DriverInstall_Vista_1]
+CopyFiles=@xrx7830.ppd
+
+DataFile=xrx7830.ppd
+CoreDriverSections="{D20EA372-DD35-4950-9ED8-A6335AFE79F1},PSCRIPT.OEM,PSCRIPT_DATA"
+
+[DriverInstall_Vista_2]
+CopyFiles=@xrx7835.ppd
+
+DataFile=xrx7835.ppd
+CoreDriverSections="{D20EA372-DD35-4950-9ED8-A6335AFE79F1},PSCRIPT.OEM,PSCRIPT_DATA"
+
+[DriverInstall_Vista_3]
+CopyFiles=@xrx7845.ppd
+
+DataFile=xrx7845.ppd
+CoreDriverSections="{D20EA372-DD35-4950-9ED8-A6335AFE79F1},PSCRIPT.OEM,PSCRIPT_DATA"
+
+[DriverInstall_Vista_4]
+CopyFiles=@xrx7855.ppd
+
+DataFile=xrx7855.ppd
+CoreDriverSections="{D20EA372-DD35-4950-9ED8-A6335AFE79F1},PSCRIPT.OEM,PSCRIPT_DATA"
+
+;
+; Declare as Package Aware for Vista and above
+;
+[PrinterPackageInstallation.x86]
+PackageAware=TRUE
+CoreDriverDependencies={D20EA372-DD35-4950-9ED8-A6335AFE79F1}
+
+[PrinterPackageInstallation.ia64]
+PackageAware=TRUE
+CoreDriverDependencies={D20EA372-DD35-4950-9ED8-A6335AFE79F1}
+
+[PrinterPackageInstallation.amd64]
+PackageAware=TRUE
+CoreDriverDependencies={D20EA372-DD35-4950-9ED8-A6335AFE79F1}
+
+;
+; Destination Directory
+;
+[DestinationDirs]
+DefaultDestDir=66000    
+
+;
+;  Location of files on installation media
+;
+[SourceDisksNames]
+100 = %Disk1%
+
+;
+; Files on installation media
+;
+[SourceDisksFiles]
+xrx7830.ppd  = 100
+
+xrx7835.ppd  = 100
+
+xrx7845.ppd  = 100
+
+xrx7855.ppd  = 100
+
+;
+; Strings Section
+;
+[Strings]
+Disk1="Xerox WorkCentre 7830/7835/7845/7855"

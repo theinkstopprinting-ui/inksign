@@ -24,7 +24,7 @@ function NumIn({ label, value, onChange, step = 0.125, placeholder }) {
   );
 }
 
-export default function Press({ devices, onJobsSent, incoming }) {
+export default function Press({ devices, onJobsSent, incoming, onServerSent }) {
   const [order, setOrder] = useState(null);
   const printers = devices.filter((d) => d.driver === 'network-printer');
   const [printerId, setPrinterId] = useState('');
@@ -41,6 +41,24 @@ export default function Press({ devices, onJobsSent, incoming }) {
   const trays = (printer?.config?.trays || 'AUTO').split(',').map((t) => t.trim()).filter(Boolean);
   const paperTypes = (printer?.config?.paperTypes || '').split(',').map((t) => t.trim()).filter(Boolean);
 
+  // InkSign Print Server (this PC or another): paper catalog + the 7845's finisher options
+  const [srv, setSrv] = useState(null);
+  const [paperId, setPaperId] = useState('');
+  const [staple, setStaple] = useState('None');
+  const [fold, setFold] = useState('None');
+  const [punch, setPunch] = useState('None');
+  const [useServer, setUseServer] = useState(true);
+  useEffect(() => {
+    let live = true;
+    const load = () => Promise.all([api.server.state(), api.server.capabilities()])
+      .then(([st, caps]) => { if (!live) return; setSrv({ catalog: st.catalog || [], caps, name: st.server?.name }); setPaperId((id) => (st.catalog || []).some((c) => c.id === id) ? id : ((st.catalog || []).find((c) => c.size === '12x18') || st.catalog?.[0])?.id || ''); })
+      .catch(() => { if (live) setSrv(null); });
+    load();
+    window.addEventListener('inksign-settings', load);
+    return () => { live = false; window.removeEventListener('inksign-settings', load); };
+  }, [devices]);
+  const server = useServer && srv && srv.catalog.length ? srv : null;
+  const paper = server ? server.catalog.find((c) => c.id === paperId) : null;
   const [src, setSrc] = useState(null);
   const [srcInfo, setSrcInfo] = useState(null);
   const [mode, setMode] = useState('repeat');
@@ -98,10 +116,18 @@ export default function Press({ devices, onJobsSent, incoming }) {
   const [msg, setMsg] = useState('');
   const seq = useRef(0);
 
-  const [sheetW, sheetH] = SHEETS[sheetName];
+  let [sheetW, sheetH] = SHEETS[sheetName];
+  if (paper) {
+    const sz = server.caps.sizes.find((x) => x.key === paper.size);
+    [sheetW, sheetH] = paper.size === 'Custom' ? [Number(paper.customW) || 12, Number(paper.customH) || 18] : sz ? [sz.w / 72, sz.h / 72] : [sheetW, sheetH];
+    [sheetW, sheetH] = [Math.min(sheetW, sheetH), Math.max(sheetW, sheetH)];
+  }
+  // Booklet spreads are two pages side by side: the sheet is used landscape
   const opts = useMemo(() => ({
-    mode, sheetW, sheetH, bleedIn: Number(bleedIn) || 0, gapIn, cropMarks, allowRotate, duplex,
+    mode, sheetW: mode === 'booklet' ? Math.max(sheetW, sheetH) : sheetW, sheetH: mode === 'booklet' ? Math.min(sheetW, sheetH) : sheetH,
+    bleedIn: Number(bleedIn) || 0, gapIn, cropMarks, allowRotate, duplex,
   }), [mode, sheetW, sheetH, bleedIn, gapIn, cropMarks, allowRotate, duplex]);
+  useEffect(() => { if (mode === 'booklet') { setFold((f) => (f === 'None' ? 'BiFoldStaple' : f)); setStaple('None'); setCropMarks(false); } else setFold('None'); }, [mode]);
   const source = useMemo(() => (src ? { ...src, widthIn: Number(imgW) + 2 * (Number(bleedIn) || 0), heightIn: Number(imgH) + 2 * (Number(bleedIn) || 0) } : null), [src, imgW, imgH, bleedIn]);
 
   const open = async () => loadSource(await api.press.open());
@@ -153,8 +179,28 @@ export default function Press({ devices, onJobsSent, incoming }) {
     const dataUrl = `data:image/${src.ext === 'png' ? 'png' : 'jpeg'};base64,${src.base64}`;
     return { ...src, cmyk: await imageToCmyk(dataUrl, fresh.profileId, fresh.intent) };
   };
+  const serverProps = () => ({
+    copies: printCopies, collate: true, media: { catalogId: paperId },
+    sides: duplexMode === 'none' ? 'one' : 'two', binding: duplexMode === 'short' ? 'short' : 'long', scale: 'none',
+    layout: { mode, bleedIn: Number(bleedIn) || 0, gapIn, cropMarks, allowRotate, repeatBack: duplex },
+    color: { mode: color }, finishing: { staple: mode === 'booklet' ? 'None' : staple, fold: mode === 'booklet' ? fold : 'None', punch },
+  });
+  const [problems, setProblems] = useState([]);
+  useEffect(() => {
+    if (!server || !paperId) { setProblems([]); return; }
+    const t = setTimeout(() => api.server.check(serverProps()).then(setProblems).catch(() => setProblems([])), 250);
+    return () => clearTimeout(t);
+  }, [server, paperId, mode, duplexMode, staple, fold, punch, color, printCopies]);
   const send = async () => {
     setMsg('');
+    if (server) {
+      try {
+        const job = await api.press.toServer(await withColor(source), serverProps(), { name: name || 'Press job', hold, inkflow: order });
+        setMsg(`Sent to the Xerox Server${hold ? ' (held)' : ''}: ${job.message}`);
+        if (onServerSent) onServerSent();
+      } catch (e) { setMsg(e.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '')); }
+      return;
+    }
     try {
       await api.press.send(printerId, await withColor(source), opts, {
         name: name || 'Press job', copies: printCopies, hold, inkflow: order,
@@ -245,7 +291,11 @@ export default function Press({ devices, onJobsSent, incoming }) {
         </div>
         <div className="tool-box">
           <div className="box-title">Sheet & trim</div>
-          <select value={sheetName} onChange={(e) => setSheetName(e.target.value)}>{Object.keys(SHEETS).map((s) => <option key={s}>{s}</option>)}</select>
+          {server ? (
+            <label className="mini-field"><span>Paper (catalog)</span>
+              <select value={paperId} onChange={(e) => setPaperId(e.target.value)}>{server.catalog.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select>
+            </label>
+          ) : <select value={sheetName} onChange={(e) => setSheetName(e.target.value)}>{Object.keys(SHEETS).map((s) => <option key={s}>{s}</option>)}</select>}
           <div className="mini-row">
             <NumIn label="Bleed in file (in)" value={bleedIn} onChange={setBleedIn} />
             {mode !== 'booklet' && <NumIn label="Gutter (in)" value={gapIn} onChange={setGapIn} placeholder="auto" />}
@@ -268,8 +318,24 @@ export default function Press({ devices, onJobsSent, incoming }) {
       </div>
 
       <div className="studio-right">
-        <div className="tool-box">
-          <div className="box-title">Printer</div>
+        <div className={`tool-box ${server ? 'press-server' : ''}`}>
+          <div className="box-title">{server ? `Xerox Server${server.name ? ` (${server.name})` : ''}` : 'Printer'}</div>
+          {srv && srv.catalog.length > 0 && <label className="check"><input type="checkbox" checked={useServer} onChange={(e) => setUseServer(e.target.checked)} /> Send through the Xerox Server</label>}
+          {server ? (<>
+            <div className="mini-row">
+              <label className="mini-field"><span>Staple</span>
+                <select value={mode === 'booklet' ? 'None' : staple} disabled={mode === 'booklet'} onChange={(e) => setStaple(e.target.value)}>{server.caps.staple.map((o) => <option key={o.key} value={o.key}>{o.label}</option>)}</select>
+              </label>
+              <label className="mini-field"><span>Hole punch</span>
+                <select value={punch} onChange={(e) => setPunch(e.target.value)}>{server.caps.punch.map((o) => <option key={o.key} value={o.key}>{o.label}</option>)}</select>
+              </label>
+            </div>
+            {mode === 'booklet' && (
+              <label className="mini-field"><span>Booklet finisher</span>
+                <select value={fold} onChange={(e) => setFold(e.target.value)}>{server.caps.fold.map((o) => <option key={o.key} value={o.key}>{o.label}</option>)}</select>
+              </label>
+            )}
+          </>) : (<>
           <select value={printerId} onChange={(e) => setPrinterId(e.target.value)}>
             {printers.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
           </select>
@@ -283,6 +349,7 @@ export default function Press({ devices, onJobsSent, incoming }) {
               </select>
             </label>
           </div>
+          </>)}
           <label className="mini-field"><span>Color</span>
             <select value={color} onChange={(e) => setColor(e.target.value)}><option value="color">Color</option><option value="gray">Black & white</option></select>
           </label>
@@ -305,11 +372,12 @@ export default function Press({ devices, onJobsSent, incoming }) {
         <label className="check"><input type="checkbox" checked={hold} onChange={(e) => setHold(e.target.checked)} /> Hold in queue until I release it</label>
         {colorProf && src && src.ext !== 'pdf' && <div className="help">Color: converted to CMYK with {colorProf.profile.name}.</div>}
         {src && <Preflight purpose="press" bleedIn={Number(bleedIn) || 0} items={[{ name: src.name, ext: src.ext, base64: src.base64, widthIn: mode === 'repeat' ? Number(imgW) : null, heightIn: mode === 'repeat' ? Number(imgH) : null }]} />}
-        <button className="btn primary wide" disabled={!info || !printerId} onClick={send}>{hold ? 'Send to queue (held)' : `Print on ${printer?.name || 'printer'}`}</button>
+        {server && problems.length > 0 && <div className="jp-problems">{problems.map((x, i) => <div key={i}>⚠ {x}</div>)}</div>}
+        <button className="btn primary wide" disabled={!info || (server ? !paperId : !printerId)} onClick={send}>{server ? (hold ? 'Send to Xerox Server (held)' : 'Print through Xerox Server') : hold ? 'Send to queue (held)' : `Print on ${printer?.name || 'printer'}`}</button>
         <button className="btn wide" disabled={!info} onClick={save}>Save imposed PDF…</button>
         <ProofButton order={order} disabled={!info} makeProof={async () => ({ kind: 'press', name: `${name || 'Press job'} proof.pdf`, note: 'Imposed print sheet from InkSign', payload: { src: await withColor(source), opts } })} />
         {msg && <div className="studio-msg">{msg}</div>}
-        <div className="help">Tray, paper type and B&amp;W go to the Xerox as PJL commands — check the first job prints from the right tray. Color matching stays on the Xerox's own settings.</div>
+        <div className="help">{server ? 'The server sends the Xerox its own driver commands for this paper (size, type, tray), 2-sided, staple, booklet fold and punch. Change anything later in Xerox Server → Properties.' : 'Sent with a plain PJL header. Turn on the Xerox Server (Xerox Server → Setup) for paper catalog, finishing and exact tray control.'}</div>
       </div>
     </div>
   );

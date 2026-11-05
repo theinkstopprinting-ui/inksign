@@ -175,4 +175,4 @@ async function impose(src, opts) {
   return { pdf: Buffer.from(await out.save()), info };
 }
 
-module.exports = { impose, bestGrid };
+module.exports = { impose, bestGrid, loadSource };
