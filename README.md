@@ -1,4 +1,4 @@
-# InkSign — v1.1
+# InkSign — v1.2
 
 Sign-shop RIP & cut program for The Ink Stop: vinyl cutting (Graphtec CE6000-60 Plus, US Cutter Titan 3),
 print & cut, HP Latex 335 / 115 jobs through Flexi 22, and Xerox 7845 imposition — working from InkFlow orders.
@@ -46,6 +46,21 @@ blank inserts / slip sheets, chapter starts — 2-sided jobs get blank backs so 
 
 **Paper catalog.** Every stock with its size, Xerox paper type, color, weight, coated, tray, ICC profile and cost per sheet; plus what's
 loaded in each tray (jobs on "Automatic" go to the tray holding that paper). Printed jobs add sheets × cost to Usage and the InkFlow order.
+
+**Profile maker (new in 1.2) — the same system InkRIP uses for the DTF printers.** Xerox Server → *Profile maker*
+(or Paper catalog → a paper → *Make a profile for this paper*):
+1. *Print the chart* — InkRIP's Nix patch sets (100–400 patches; 200 is the best start), as a CMYK PDF on the catalog paper,
+   at the print quality you'll use. It prints at 100 % with color management locked off. Let it rest 10 minutes.
+2. *Read it with the Nix* — **Nix on USB** (scan patch by patch; shows the next patch's number and color; Enter = scan;
+   uses InkRIP's NixBridge — found automatically when InkRIP is on the PC, or point to NixBridge.exe; the Nix licence is
+   pasted once per PC), or open / paste the **Nix app's CSV export**. Readings are kept as you go.
+3. *Check the readings* — missing patches, readings out of order (a skipped or doubled scan), patches worth re-scanning.
+4. *Build profile* — InkRIP's profile maker (toner limit, default 280 %; GCR light/medium/heavy) builds an ICC v2 CMYK
+   printer profile on the print server and sets it on that paper. Jobs on the paper use it when Job properties →
+   Color & image → *InkSign color management* is on.
+*Top-up* — 100 hard colors (blues, teals, greens, purples, oranges, darks) printed on the same paper, read, added to the
+profile's readings and rebuilt in place (the previous profile is kept as `.before-topup`).
+Run the Xerox's own color calibration before profiling, and every few weeks.
 
 **Getting jobs in.** Press page · Import (PDF / PostScript) · InkFlow orders (Press) · **Windows printers**: Xerox Server → Setup →
 *Add the InkSign printers* adds "InkSign 7845 - Hold" and "InkSign 7845 - Print" (with Xerox's 7845 PS3 driver, included) to any PC —
@@ -164,6 +179,7 @@ Optional: Settings → Updates → *Fully automatic* takes a web folder with `la
 - Xerox tray / paper type / duplex commands — check the first job comes from the right tray.
 
 ## Build from source
-`npm install` · `npm start` (run) · `npm test` (75 tests) · `npm run dist` (Windows installer; on Linux needs Wine).
+`npm install` · `npm start` (run) · `npm test` (78 tests) · `npm run dist` (Windows installer; on Linux needs Wine).
 Ghostscript is `@jspawn/ghostscript-wasm` (Ghostscript 9.56, AGPL). Xerox PPD driver files: `electron/printers/xerox-7845-ppd-driver/`.
+Profile engine and Nix code in `electron/color/` are ported from InkRIP (`server/iccengine.js`, `profilemaker.js`, `nixchart.js`, `nixdevice.js`) — keep them in step.
 New cutter/printer models: one line in `electron/drivers/presets.js`; new kinds of machine: a driver in `electron/drivers/`.

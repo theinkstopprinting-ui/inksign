@@ -137,6 +137,23 @@ contextBridge.exposeInMainWorld('inksign', {
     firewall: () => ipcRenderer.invoke('srv:firewall'),
     onChange: (cb) => { const h = (_e, j) => cb(j); ipcRenderer.on('srv:changed', h); return () => ipcRenderer.removeListener('srv:changed', h); },
   },
+  // Xerox profile maker (InkRIP's system) + the Nix Mini on USB
+  profiling: {
+    patches: (kind, n) => ipcRenderer.invoke('prof:patches', kind, n),
+    topups: () => ipcRenderer.invoke('prof:topups'),
+    chart: (o) => ipcRenderer.invoke('prof:chart', o),
+    check: (o) => ipcRenderer.invoke('prof:check', o),
+    build: (o) => ipcRenderer.invoke('prof:build', o),
+    topupBuild: (o) => ipcRenderer.invoke('prof:topupBuild', o),
+  },
+  nix: {
+    info: () => ipcRenderer.invoke('nix:info'),
+    connect: () => ipcRenderer.invoke('nix:connect'),
+    disconnect: () => ipcRenderer.invoke('nix:disconnect'),
+    measure: () => ipcRenderer.invoke('nix:measure'),
+    saveLicense: (text) => ipcRenderer.invoke('nix:saveLicense', text),
+    pickBridge: () => ipcRenderer.invoke('nix:pickBridge'),
+  },
   files: {
     saveJob: (name, data) => ipcRenderer.invoke('files:saveJob', name, data),
     savePng: (name, dataUrl) => ipcRenderer.invoke('files:savePng', name, dataUrl),

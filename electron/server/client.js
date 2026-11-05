@@ -42,6 +42,12 @@ function make({ address, key, user }) {
     saveCatalog: (list) => call('PUT', '/api/catalog', { list }),
     saveTrays: (trays) => call('PUT', '/api/trays', { trays }),
     setPaused: async (paused) => (await call('POST', '/api/pause', { paused })).paused,
+    profPatches: (kind, n) => call('GET', `/api/profiling/patches?kind=${encodeURIComponent(kind || 'main')}&n=${encodeURIComponent(n || '')}`),
+    profTopups: () => call('GET', '/api/profiling/topups'),
+    profChart: (o) => call('POST', '/api/profiling/chart', o, { timeoutMs: 5 * 60 * 1000 }),
+    profCheck: (o) => call('POST', '/api/profiling/check', o, { timeoutMs: 5 * 60 * 1000 }),
+    profBuild: (o) => call('POST', '/api/profiling/build', o, { timeoutMs: 10 * 60 * 1000 }),
+    profTopupBuild: (o) => call('POST', '/api/profiling/topup-build', o, { timeoutMs: 10 * 60 * 1000 }),
   };
 }
 

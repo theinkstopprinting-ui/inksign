@@ -1,7 +1,7 @@
 {
   "name": "inksign",
   "productName": "InkSign",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "InkSign - sign shop RIP & cut manager for The Ink Stop (cutters, HP Latex via Flexi, Xerox print server)",
   "main": "electron/main.js",
   "author": "The Ink Stop Screen & Sign Printing, Inc.",
@@ -53,6 +53,7 @@
       }
     ],
     "asarUnpack": [
+      "electron/color/**",
       "electron/lib/gsWorker.js",
       "electron/printers/**",
       "node_modules/@jspawn/ghostscript-wasm/**",

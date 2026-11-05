@@ -10,6 +10,7 @@ const printServer = require('./printServer');
 const httpApi = require('./http');
 const client = require('./client');
 const ticket = require('./ticket');
+const nixdev = require('../color/nixdevice');
 
 let ctx = null; // { app, store, shop, inkflow, transports, ipcMain, dialog, getWin, notice }
 let httpSrv = null;
@@ -91,6 +92,7 @@ function startServer() {
   printServer.init({
     dir: path.join(ctx.app.getPath('userData'), 'print-server'), store: ctx.store, gs: require('../lib/ghostscript'), ppdLib: require('../lib/ppd'),
     transports: ctx.transports, userName: () => ctx.shop.userName(), profileBytes, onFinished, log: ctx.notice,
+    profilesDir: path.join(ctx.app.getPath('userData'), 'profiles'),
     notify: (job) => { const w = ctx.getWin(); if (w && !w.isDestroyed()) w.webContents.send('srv:changed', job); },
   });
   const port = Number(settings().apiPort) || API_PORT;
@@ -105,6 +107,7 @@ function startServer() {
   }
 }
 function stopServer() {
+  nixdev.stop();
   if (!started) return;
   printServer.stop();
   try { httpSrv.close(); } catch { /* closed */ }
@@ -256,11 +259,29 @@ function register() {
     return r.filePath;
   });
   h('srv:addPrinters', (opts) => addWindowsPrinters(opts || {}));
+  // Profile maker: chart / readings / profile on the server; the Nix is read on this PC
+  h('prof:patches', (kind, n) => backend().profPatches(kind, n));
+  h('prof:topups', () => backend().profTopups());
+  h('prof:chart', (o) => backend().profChart(o));
+  h('prof:check', (o) => backend().profCheck(o));
+  h('prof:build', (o) => { ctx.shop.requireOwner(); return backend().profBuild(o); });
+  h('prof:topupBuild', (o) => { ctx.shop.requireOwner(); return backend().profTopupBuild(o); });
+  h('nix:info', () => nixdev.status());
+  h('nix:connect', () => nixdev.connect());
+  h('nix:disconnect', () => nixdev.disconnect());
+  h('nix:measure', () => nixdev.measure());
+  h('nix:saveLicense', (text) => nixdev.saveLicense(text));
+  h('nix:pickBridge', async () => {
+    const r = await dialog.showOpenDialog(ctx.getWin(), { title: 'Find NixBridge.exe (in the InkRIP program folder → nixbridge)', properties: ['openFile'], filters: [{ name: 'NixBridge', extensions: ['exe'] }] });
+    if (r.canceled) return nixdev.info();
+    return nixdev.setBridge(r.filePaths[0]);
+  });
   h('srv:firewall', () => { ctx.shop.requireOwner(); return allowFirewall(); });
 }
 
 function init(c) {
   ctx = c;
+  nixdev.init({ getSettings: () => ctx.store.getSettings(), saveSettings: (p) => ctx.store.saveSettings(p), dataDir: ctx.app.getPath('userData') });
   register();
   apply();
 }

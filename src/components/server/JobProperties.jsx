@@ -44,7 +44,7 @@ function PaperSel({ label, value, onChange, catalog, caps, empty }) {
   );
 }
 
-export default function JobProperties({ job, caps, catalog, onClose, onSaved, onPreview }) {
+export default function JobProperties({ job, caps, catalog, profiles: serverProfiles, onClose, onSaved, onPreview }) {
   const [tab, setTab] = useState('media');
   const [p, setP] = useState(() => withDefaults(job.props));
   const [name, setName] = useState(job.name);
@@ -54,7 +54,8 @@ export default function JobProperties({ job, caps, catalog, onClose, onSaved, on
   const [saving, setSaving] = useState(false);
   const seq = useRef(0);
 
-  useEffect(() => { api.color.profiles().then(setProfiles).catch(() => {}); }, []);
+  // the server's profiles: that's where jobs are converted
+  useEffect(() => { if (serverProfiles) setProfiles(serverProfiles); else api.color.profiles().then(setProfiles).catch(() => {}); }, [serverProfiles]);
   // Live check against the Xerox's rules (PPD constraints) and the layout
   useEffect(() => {
     const id = ++seq.current;

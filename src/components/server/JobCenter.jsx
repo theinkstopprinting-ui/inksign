@@ -3,6 +3,7 @@ import JobProperties from './JobProperties.jsx';
 import SheetPreview from './SheetPreview.jsx';
 import PaperCatalog from './PaperCatalog.jsx';
 import ServerSetup from './ServerSetup.jsx';
+import ProfileMaker from './ProfileMaker.jsx';
 import { cleanErr, fmtDate, STATUS } from './common.js';
 
 const api = window.inksign;
@@ -136,6 +137,7 @@ export default function JobCenter({ owner, active }) {
         <div className="row">
           <button className="btn primary" onClick={importFiles}>Import…</button>
           <button className="btn" onClick={() => setDialog({ kind: 'catalog' })}>Paper catalog</button>
+          <button className="btn" onClick={() => setDialog({ kind: 'profiler' })}>Profile maker</button>
           <button className={`btn ${state.server.paused ? 'primary' : ''}`} onClick={togglePause}>{state.server.paused ? 'Resume printing' : 'Pause printing'}</button>
           {owner && <button className="btn ghost" onClick={() => setDialog({ kind: 'setup' })}>Setup…</button>}
         </div>
@@ -220,12 +222,13 @@ export default function JobCenter({ owner, active }) {
       </div>
 
       {dialog?.kind === 'props' && caps && (
-        <JobProperties job={dialog.job} caps={caps} catalog={state.catalog} onClose={() => setDialog(null)}
+        <JobProperties job={dialog.job} caps={caps} catalog={state.catalog} profiles={state.profiles} onClose={() => setDialog(null)}
           onSaved={async (andPrint) => { if (andPrint) await api.server.action(dialog.job.id, 'print'); setDialog(null); load(); }}
           onPreview={(props) => setDialog({ kind: 'preview', job: dialog.job, props, back: dialog })} />
       )}
       {dialog?.kind === 'preview' && <SheetPreview job={dialog.job} props={dialog.props} onClose={() => setDialog(dialog.back || null)} />}
-      {dialog?.kind === 'catalog' && caps && <PaperCatalog caps={caps} owner={owner} state={state} onClose={() => { setDialog(null); load(); }} />}
+      {dialog?.kind === 'catalog' && caps && <PaperCatalog caps={caps} owner={owner} state={state} onClose={() => { setDialog(null); load(); }} onProfile={(paperId) => setDialog({ kind: 'profiler', paperId })} />}
+      {dialog?.kind === 'profiler' && caps && <ProfileMaker caps={caps} catalog={state.catalog} owner={owner} paperId={dialog.paperId} onClose={() => { setDialog(null); load(); }} />}
       {dialog?.kind === 'setup' && <ServerSetup onClose={() => { setDialog(null); setCaps(null); load(); }} />}
     </div>
   );

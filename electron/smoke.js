@@ -141,7 +141,29 @@ function start(outFile) {
       const thumb = await client.thumb(rj.id);
       check('Thumbnails over the network', thumb && thumb.length > 100 && thumb.subarray(1, 4).toString() === 'PNG');
 
-      // 6) The app window and pages render
+      // 6) Profile maker (InkRIP's system): chart on catalog paper, made-up Nix readings, build, top-up
+      {
+        const nd = require('./color/nixdata');
+        const ic = require('./color/iccengine');
+        const model = (c) => ic.srgbToLab(255 * (1 - c[0]) * (1 - c[3]) * (1 - 0.1 * c[1]), 255 * (1 - 0.92 * c[1]) * (1 - c[3]) * (1 - 0.3 * c[0]), 255 * (1 - 0.95 * c[2]) * (1 - c[3]) * (1 - 0.15 * c[1]));
+        const csv = (pp) => `Patch,L,a,b\n${pp.map((c, i) => `${i + 1},${model(c).map((v) => v.toFixed(2)).join(',')}`).join('\n')}`;
+        const before = received.length;
+        const ch = await srv.profChart({ patches: 200, catalogId: 'pc-letter-gloss-text', quality: 'Enhanced' });
+        await until(() => received.length > before, 60000);
+        const cs = received[received.length - 1].toString('latin1');
+        check('Profile chart prints on the catalog paper, color management off', ch.pages === 2 && cs.includes('*MediaType LightweightGlossyCardstock') && cs.includes('*OutputMode Enhanced') && !/^[\d. ]+ rg$/m.test(cs), `${ch.pages} pages, ${ch.code}`);
+        const chk = await srv.profCheck({ patches: 200, text: csv(nd.chartPatches(200)) });
+        check('Profile maker reads and checks Nix readings', chk.readings === 200 && !chk.problems.length, `${chk.readings} readings`);
+        const t1 = Date.now();
+        const b = await srv.profBuild({ patches: 200, text: csv(nd.chartPatches(200)), catalogId: 'pc-letter-gloss-text', quality: 'Enhanced' });
+        check('Profile built and set on the paper', b.fit.avg < 3 && srv.state().catalog.find((c) => c.id === 'pc-letter-gloss-text').outputProfileId === b.id, `${b.name}: fit ΔE avg ${b.fit.avg}, ${Date.now() - t1} ms`);
+        const tb = await srv.profTopupBuild({ profileId: b.id, text: csv(nd.topupPatches()) });
+        check('Top-up rebuilds the profile', tb.patches === 300 && tb.after.avg <= tb.before.avg, `ΔE ${tb.before.avg} → ${tb.after.avg}`);
+        const nixInfo = require('./color/nixdevice').info();
+        check('Nix USB support loads', typeof nixInfo.available === 'boolean', nixInfo.bridge ? `bridge ${nixInfo.bridge}` : 'no NixBridge on this PC (paste readings works)');
+      }
+
+      // 7) The app window and pages render
       const win = getWin();
       if (win.webContents.isLoading()) await new Promise((r) => win.webContents.once('did-finish-load', r));
       const pages = await win.webContents.executeJavaScript(`(async () => {
@@ -169,15 +191,19 @@ function start(outFile) {
           await wait(300);
           const pc = [...document.querySelectorAll('button')].find((b) => b.textContent === 'Paper catalog');
           if (pc) { pc.click(); await wait(800); out.__catalog = document.querySelectorAll('.pc-list .piece').length; }
+          const close = document.querySelector('.pc-modal .modal-head .btn.ghost'); if (close) { close.click(); await wait(400); }
+          const pm = [...document.querySelectorAll('button')].find((b) => b.textContent === 'Profile maker');
+          if (pm) { pm.click(); await wait(1200); out.__pmSteps = document.querySelectorAll('.pm-steps > section').length; }
         }
         return out;
       })()`);
       const rows = pages.__jobRows; const propTabs = pages.__propTabs; const catalogN = pages.__catalog;
-      delete pages.__jobRows; delete pages.__propTabs; delete pages.__catalog;
+      const pmSteps = pages.__pmSteps; delete pages.__jobRows; delete pages.__propTabs; delete pages.__catalog; delete pages.__pmSteps;
       check('Every page opens', Object.keys(pages).length >= 10 && Object.values(pages).every(Boolean), Object.keys(pages).join(', '));
       check('Xerox Server page lists the jobs', rows >= 4, `${rows} rows`);
       check('Job Properties opens with all its tabs', propTabs === 6, `${propTabs} tabs`);
       check('Paper catalog opens', catalogN >= 8, `${catalogN} papers`);
+      check('Profile maker opens with its 4 steps', pmSteps === 4, `${pmSteps} steps`);
       check('No errors in the app window', !results.consoleErrors?.length, results.consoleErrors);
       fake.close();
       printSrv.stopServer();

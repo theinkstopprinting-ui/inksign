@@ -11,6 +11,7 @@ const path = require('path');
 const net = require('net');
 const crypto = require('crypto');
 const ticket = require('./ticket');
+const profiling = require('./profiling');
 
 let ctx = null; // { dir, store, gs, ppdLib, transports, notify, onFinished, userName, profileBytes, log }
 let jobs = [];
@@ -96,6 +97,7 @@ function state() {
     server: { name: c.serverName, paused, holdPort: c.holdPort, printPort: c.printPort, capture: c.capture, listening: captureServers.map((s) => s.port) },
     printer: dev ? { id: dev.id, name: dev.name, host: dev.config?.host || '', model: ppd().nickName } : null,
     trays: c.trays, catalog: catalog(), jobs: jobs.map(view),
+    profiles: (ctx.store.getSettings().iccProfiles || []).map((x) => ({ id: x.id, name: x.name, space: x.space, notes: x.notes || '', paperId: x.paperId || null, madeBy: x.madeBy || null })),
   };
 }
 
@@ -139,6 +141,7 @@ async function submit(input) {
     id, name: String(input.name || 'Job').slice(0, 120), user: input.user || (ctx.userName ? ctx.userName() : null) || null, from: input.from || c.serverName,
     source: input.source || 'inksign', createdAt: Date.now(), updatedAt: Date.now(), status: 'processing', message: 'Receiving…',
     props: ticket.mergeProps({ ...c.defaults, ...(input.props || {}) }), edited: false, raw: false, inkflow: input.inkflow || null, printCount: 0, rush: false, log: [],
+    profiling: input.profiling || null,
   };
   jobs.push(job);
   emit(job);
@@ -176,7 +179,7 @@ async function countPages(pdf) {
 }
 
 const sourcePdf = (job) => fs.readFileSync(path.join(spoolDir(job.id), 'source.pdf'));
-const keyFor = (job) => crypto.createHash('sha1').update(JSON.stringify([job.props, catalog(), config().trays, printerDevice()?.config?.model])).digest('hex');
+const keyFor = (job) => crypto.createHash('sha1').update(JSON.stringify([job.props, catalog(), config().trays, printerDevice()?.config?.model, ctx.store.getSettings().iccProfiles || []])).digest('hex');
 
 async function streamFor(job) {
   const dir = spoolDir(job.id);
@@ -297,7 +300,12 @@ async function action(id, act, arg) {
 function setProps(id, props, name) {
   const job = find(id);
   if (job.status === 'printing' || job.status === 'processing') throw new Error('Wait until the printer has the job, then change it');
-  const merged = ticket.mergeProps(props);
+  let merged = ticket.mergeProps(props);
+  // profiling charts must print exactly as made: paper may change, colour handling and layout may not
+  if (job.profiling) {
+    const lock = profiling.chartProps(merged.media.catalogId || job.profiling.catalogId, merged.quality);
+    merged = ticket.mergeProps({ ...lock, copies: merged.copies, notes: merged.notes });
+  }
   update(job, { props: merged, edited: true, processedKey: null, ...(name ? { name: String(name).slice(0, 120) } : {}), message: job.status === 'printed' ? job.message : 'Properties changed' }, 'Changed job properties');
   return view(job);
 }
@@ -378,6 +386,7 @@ function cleanup() {
 
 function init(c) {
   ctx = c;
+  profiling.init({ store: ctx.store, printServer: module.exports, gs: ctx.gs, ppd, catalog, profilesDir: ctx.profilesDir || path.join(ctx.dir, '..', 'profiles') });
   fs.mkdirSync(path.join(ctx.dir, 'spool'), { recursive: true });
   try { jobs = JSON.parse(fs.readFileSync(jobsFile(), 'utf8')); } catch { jobs = []; }
   // Anything mid-flight when InkSign closed goes back on hold
@@ -394,4 +403,7 @@ function stop() { stopCapture(); }
 module.exports = {
   init, stop, state, capabilities, submit, action, setProps, preview, checkProps, thumb, original, saveCatalog, saveTrays, setPaused,
   startCapture, onChange, config, printerDevice,
+  // Profile maker (same system as InkRIP's, see profiling.js)
+  profChart: (o) => profiling.printChart(o), profCheck: (o) => profiling.check(o), profBuild: (o) => profiling.build(o),
+  profTopups: () => profiling.topups(), profTopupBuild: (o) => profiling.topupBuild(o), profPatches: (kind, n) => profiling.patchList(kind, n),
 };

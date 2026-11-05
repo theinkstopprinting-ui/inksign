@@ -72,6 +72,13 @@ function start({ server, port, getKey, version, log, asUser }) {
       if (req.method === 'POST' && p === '/api/check') { const b = await readBody(req); return send(200, { problems: server.checkProps(b.props || {}) }); }
       if (req.method === 'PUT' && p === '/api/catalog') { const b = await readBody(req); return send(200, run(() => server.saveCatalog(b.list))); }
       if (req.method === 'PUT' && p === '/api/trays') { const b = await readBody(req); return send(200, run(() => server.saveTrays(b.trays))); }
+      if (req.method === 'GET' && p === '/api/profiling/patches') return send(200, server.profPatches(url.searchParams.get('kind') === 'topup' ? 'topup' : 'main', url.searchParams.get('n')));
+      if (req.method === 'GET' && p === '/api/profiling/topups') return send(200, server.profTopups());
+      if ((m = p.match(/^\/api\/profiling\/(chart|check|build|topup-build)$/)) && req.method === 'POST') {
+        const b = await readBody(req);
+        const fn = { chart: 'profChart', check: 'profCheck', build: 'profBuild', 'topup-build': 'profTopupBuild' }[m[1]];
+        return send(200, await run(() => server[fn](b)));
+      }
       if (req.method === 'POST' && p === '/api/pause') { const b = await readBody(req); return send(200, { paused: server.setPaused(b.paused) }); }
       return send(404, { error: 'Not found' });
     } catch (e) {

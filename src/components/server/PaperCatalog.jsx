@@ -6,14 +6,14 @@ const blank = () => ({ id: `pc-${Date.now().toString(36)}`, name: 'New paper', s
 
 // Fiery-style paper catalog: every stock the shop runs, with the Xerox paper type, tray, ICC profile
 // and cost per sheet — plus what's loaded in each tray right now.
-export default function PaperCatalog({ caps, owner, state, onClose }) {
+export default function PaperCatalog({ caps, owner, state, onClose, onProfile }) {
   const [list, setList] = useState(() => JSON.parse(JSON.stringify(state.catalog || [])));
   const [trays, setTrays] = useState(() => ({ ...(state.trays || {}) }));
   const [edit, setEdit] = useState(null);
   const [profiles, setProfiles] = useState([]);
   const [msg, setMsg] = useState('');
   const [dirty, setDirty] = useState(false);
-  useEffect(() => { api.color.profiles().then(setProfiles).catch(() => {}); }, []);
+  useEffect(() => { if (state.profiles) setProfiles(state.profiles); else api.color.profiles().then(setProfiles).catch(() => {}); }, [state.profiles]);
 
   const cur = list.find((c) => c.id === edit);
   const upd = (patch) => { setList((l) => l.map((c) => (c.id === edit ? { ...c, ...patch } : c))); setDirty(true); };
@@ -100,6 +100,7 @@ export default function PaperCatalog({ caps, owner, state, onClose }) {
                   {cmyk.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
                 </select>
               </label>
+              {onProfile && <div className="row"><button className="btn small" disabled={dirty} title={dirty ? 'Save the catalog first' : ''} onClick={() => onProfile(cur.id)}>Make a profile for this paper…</button>{dirty && <span className="help">Save first</span>}</div>}
               <label className="mini-field"><span>Notes</span><input type="text" disabled={!owner} value={cur.notes || ''} onChange={(e) => upd({ notes: e.target.value })} /></label>
               {owner && <div className="row"><button className="btn small" onClick={() => add(cur)}>Duplicate</button><button className="btn small danger" onClick={() => del(cur.id)}>Remove</button></div>}
             </>)}
