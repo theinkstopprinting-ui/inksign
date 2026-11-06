@@ -52,7 +52,7 @@ const ALERT_TEXT = {
   ready: 'Ready', missingPrintHead: 'A printhead is missing or not seated', incorrectPrintHead: 'A printhead is the wrong type or not recognized',
   printHeadFailure: 'Printhead problem', mediaOut: 'Out of media', noMedia: 'No media loaded', mediaJam: 'Media jam', coverOpen: 'A cover is open',
   inkCartridgeMissing: 'An ink cartridge is missing', inkCartridgeLow: 'Ink is low', inkCartridgeVeryLow: 'Ink is very low', inkCartridgeEmpty: 'An ink cartridge is empty',
-  sleepMode: 'Asleep (wakes up when a job arrives)', busy: 'Busy', printing: 'Printing', processing: 'Processing', paused: 'Paused',
+  sleepMode: 'Asleep (wakes up when a job arrives)', inPowerSave: 'Ready — in power save (wakes up when a job arrives)', busy: 'Busy', printing: 'Printing', processing: 'Processing', paused: 'Paused',
 };
 const COLOR = { C: 'cyan', M: 'magenta', Y: 'yellow', K: 'black', LC: 'light cyan', LM: 'light magenta', MY: 'magenta/yellow', CK: 'cyan/black', LCLM: 'light cyan/light magenta', OP: 'optimizer' };
 
@@ -68,7 +68,9 @@ function parseProductStatus(xml) {
     if (seen.has(key)) continue;
     seen.add(key);
     const base = ALERT_TEXT[id] || id.replace(/([a-z])([A-Z])/g, '$1 $2').replace(/^./, (c) => c.toUpperCase());
-    alerts.push({ id, severity: tag(a, 'Severity') || 'Info', text: color ? `${base} (${COLOR[color] || color})` : base });
+    // The alert table keeps old entries (a printhead that was out during a swap stays listed); the
+    // printer's own status — what its front panel shows — is the StatusCategory, so only that is "current"
+    alerts.push({ id, severity: tag(a, 'Severity') || 'Info', text: color ? `${base} (${COLOR[color] || color})` : base, current: id === status });
   }
   return { status, statusText: ALERT_TEXT[status] || status, alerts };
 }

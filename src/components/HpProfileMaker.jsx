@@ -107,7 +107,7 @@ export default function HpProfileMaker({ devices, owner = true, deviceId: startD
                 <select value={modeKey} onChange={(e) => setModeKey(e.target.value)}>{modes.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}</select>
               </label>
             </div>
-            {loaded?.media && <div className="help">Loaded now: {loaded.media.mediaType} ({(loaded.media.widthMm / 25.4).toFixed(2)}″).{loaded.alerts?.some((a) => a.severity === 'Error') ? ` ⚠ The printer reports: ${loaded.alerts.filter((a) => a.severity === 'Error').map((a) => a.text).join('; ')} — fix that first or the chart will be off.` : ''}</div>}
+            {loaded?.media && <div className="help">Loaded now: {loaded.media.mediaType} ({(loaded.media.widthMm / 25.4).toFixed(2)}″).{loaded.alerts?.some((a) => a.current && a.severity === 'Error') ? ` ⚠ The printer reports: ${loaded.alerts.filter((a) => a.current && a.severity === 'Error').map((a) => a.text).join('; ')} — fix that first or the chart will be off.` : ` Printer: ${loaded.statusText || 'ready'}.`}</div>}
             <div className="row">
               <button className="btn primary" disabled={!!busy || !dev || !mediaId} onClick={() => printChart('main')}>{busy === 'chart' ? 'Sending…' : 'Print the chart'}</button>
               <span className="help">Prints with color management off, in this media preset and print mode, about 24″ wide. Let it cure and cool (10 minutes) before reading.</span>

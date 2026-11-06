@@ -150,7 +150,7 @@ export default function PrintWindow({ devices, jobs = [], source, previewPdfBase
             <select value={deviceId} onChange={(e) => setDeviceId(e.target.value)}>
               {printers.map((d) => <option key={d.id} value={d.id}>{d.name}{d.config?.host ? ` @ ${d.config.host}` : ''}</option>)}
             </select>
-            <div className={`pw-status ${printer?.alerts?.some((a) => a.severity === 'Error') ? 'bad' : printer ? 'ok' : ''}`}>
+            <div className={`pw-status ${printer?.alerts?.some((a) => a.current && a.severity === 'Error') ? 'bad' : printer ? 'ok' : ''}`}>
               {!dev ? 'Add a printer under Devices' : !isHp ? (isRoll ? 'Roll printer — type the media width' : 'Prints the page as laid out in the design') : asking ? 'Asking the printer…' : printer ? (printer.statusText || 'Connected') : 'Not asked yet'}
             </div>
             {printer?.ink?.length > 0 && (
@@ -294,7 +294,12 @@ export default function PrintWindow({ devices, jobs = [], source, previewPdfBase
                   <fieldset>
                     <legend>The printer says</legend>
                     {printer.media && <div className="small">Loaded: <b>{printer.media.mediaType || '—'}</b>, {fmt(printer.media.widthMm || 0, 2)}″ wide{printer.media.trayType ? ` (${printer.media.trayType})` : ''}</div>}
-                    {printer.alerts.filter((a) => a.id !== 'ready').map((a, i) => <div key={i} className={a.severity === 'Error' ? 'error small' : 'warn-text small'}>{a.severity}: {a.text}</div>)}
+                    {printer.alerts.filter((a) => a.current && a.severity !== 'Info').map((a, i) => <div key={i} className={a.severity === 'Error' ? 'error small' : 'warn-text small'}>{a.severity}: {a.text}</div>)}
+                    {printer.alerts.some((a) => !a.current && a.severity !== 'Info') && (
+                      <details className="small muted"><summary>Older notices in the printer's log</summary>
+                        {printer.alerts.filter((a) => !a.current && a.severity !== 'Info').map((a, i) => <div key={i}>{a.text}</div>)}
+                      </details>
+                    )}
                     {printer.ink.length > 0 && (
                       <div className="pw-ink">
                         {printer.ink.map((k, i) => (

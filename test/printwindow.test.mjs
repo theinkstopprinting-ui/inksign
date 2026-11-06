@@ -78,3 +78,11 @@ test('layout PDF: page as wide as used, job turned and placed from the right edg
   assert.ok(near(pg.getWidth(), p.usedW * 72 / 25.4, 0.01) && near(pg.getHeight(), p.usedL * 72 / 25.4, 0.01));
   assert.ok(near(p.pieces[0].w, 50) && near(p.pieces[0].h, 100));
 });
+
+test('old printhead entries in the alert log are not shown as current errors (335 after the head swap)', () => {
+  const st = H.parseProductStatus(fx('ProductStatusDyn-powersave.xml'));
+  assert.strictEqual(st.status, 'inPowerSave');
+  assert.match(st.statusText, /power save/);
+  assert.deepStrictEqual(st.alerts.filter((a) => a.current && a.severity === 'Error'), []);
+  assert.ok(st.alerts.some((a) => !a.current && a.id === 'missingPrintHead'));
+});
