@@ -640,3 +640,10 @@ details.adv[open] > summary { margin-bottom: 4px; }
 .pw-inkline span { display: inline-flex; align-items: center; gap: 4px; }
 .pw-inkline span.low { color: var(--err); font-weight: 600; }
 .pw-inkline i { width: 10px; height: 10px; border-radius: 3px; border: 1px solid #555; display: inline-block; }
+.dz-empty { position: absolute; }
+.dz-empty-x { position: absolute; top: 8px; right: 10px; background: none; border: 0; color: var(--muted); font-size: 16px; cursor: pointer; pointer-events: auto; padding: 4px 8px; border-radius: 6px; }
+.dz-empty-x:hover { background: var(--panel2); color: var(--text); }
+.dz-empty input { pointer-events: auto; }
+.dz-newsize { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; }
+.dz-empty { max-width: 620px; }
+.dz-empty .row { flex-wrap: wrap; justify-content: center; }

@@ -90,6 +90,8 @@ export default function Design({ devices, jobs = [], active, onJobsSent }) {
   const [filePath, setFilePath] = useState(null);
   const [dirty, setDirty] = useState(false);
   const [busy, setBusy] = useState('');
+  const [welcome, setWelcome] = useState(true);
+  const [newSize, setNewSize] = useState({ w: 24, h: 12 });
   const canvas = useRef(null);
   const hist = useRef(D.history(120));
   const docRef = useRef(doc);
@@ -238,7 +240,7 @@ export default function Design({ devices, jobs = [], active, onJobsSent }) {
 
   // ---- files ----
   const confirmLose = () => !dirty || window.confirm('Discard the changes to this design?');
-  const newDoc = () => { if (!confirmLose()) return; hist.current = D.history(120); live(D.newDoc({ widthIn: doc.page.w / MM, heightIn: doc.page.h / MM })); setSel([]); setFilePath(null); setDirty(false); };
+  const newDoc = () => { if (!confirmLose()) return; hist.current = D.history(120); live(D.newDoc({ widthIn: doc.page.w / MM, heightIn: doc.page.h / MM })); setSel([]); setFilePath(null); setDirty(false); setWelcome(true); };
   const save = async () => {
     const p = await api.files.saveJob(doc.name, { kind: 'inksign-design', version: 1, doc });
     if (p) { setFilePath(p); setDirty(false); flash(`Saved ${p}`); }
@@ -682,11 +684,25 @@ export default function Design({ devices, jobs = [], active, onJobsSent }) {
           onTextAt={async (p) => { if (textEdit) { await commitTextEdit(); return; } setTextEdit({ x: p.x, y: p.y, text: '' }); }} onEditText={startEditText} onPick={pickFrom} />
         {textOverlay}
         {busy && <div className="dz-busy">{busy}</div>}
-        {!doc.objects.length && !busy && (
+        {welcome && !doc.objects.length && !busy && (
           <div className="dz-empty">
-            <b>Design</b>
-            <span>Draw with the tools on the left, type with T, or bring in artwork.</span>
-            <div className="row"><button className="btn primary" onClick={() => doImport(false)}>Import artwork…</button><button className="btn" onClick={() => { if (confirmLose()) doImport(true); }}>Open a PDF / AI / EPS…</button></div>
+            <button className="dz-empty-x" title="Close — start with a blank page" onClick={() => setWelcome(false)}>✕</button>
+            <b>New design</b>
+            <div className="dz-newsize">
+              {[['24 × 12', 24, 12], ['24 × 18 yard sign', 24, 18], ['36 × 24', 36, 24], ['48 × 24 banner', 48, 24], ['72 × 36 banner', 72, 36], ['96 × 48 sheet', 96, 48], ['8.5 × 11', 8.5, 11], ['12 × 18', 12, 18]].map(([l, w, h]) => (
+                <button key={l} className={`btn small ${newSize.w === w && newSize.h === h ? 'primary' : ''}`} onClick={() => setNewSize({ w, h })}>{l}</button>
+              ))}
+            </div>
+            <div className="row">
+              <label className="dz-pb">W<input type="number" step={0.125} value={newSize.w} onChange={(e) => setNewSize((s) => ({ ...s, w: parseFloat(e.target.value) || 0 }))} /><em>in</em></label>
+              <label className="dz-pb">H<input type="number" step={0.125} value={newSize.h} onChange={(e) => setNewSize((s) => ({ ...s, h: parseFloat(e.target.value) || 0 }))} /><em>in</em></label>
+              <button className="btn primary" disabled={!(newSize.w > 0.2 && newSize.h > 0.2)} onClick={() => {
+                live({ ...docRef.current, page: { ...docRef.current.page, w: newSize.w * MM, h: newSize.h * MM } });
+                setWelcome(false); setTimeout(() => canvas.current?.fit(), 30);
+              }}>Start</button>
+            </div>
+            <span className="muted small">or bring in artwork</span>
+            <div className="row"><button className="btn" onClick={() => { setWelcome(false); doImport(false); }}>Import artwork…</button><button className="btn" onClick={() => { if (confirmLose()) { setWelcome(false); doImport(true); } }}>Open a PDF / AI / EPS…</button><button className="btn" onClick={() => { setWelcome(false); open(); }}>Open a saved design…</button></div>
             <small className="muted">PDF, AI, EPS, SVG, DXF, PNG and JPG. Text in PDFs comes in as shapes; CutContour lines come in as cut lines.</small>
           </div>
         )}
