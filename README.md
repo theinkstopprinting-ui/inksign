@@ -25,6 +25,24 @@ It adds InkSign to the desktop and Start menu. Installing a newer version over a
 | **Usage** | Media and ink per job, by printer and media, plus labor timers; CSV export. |
 | **Settings** | InkFlow link, watch folders, people & PINs, phone view, shared setup between PCs, updates. |
 
+## New in 1.6 — Print window like Flexi's RIP and Print
+
+**Print** (Ctrl+P) on the Design page opens a print window laid out like Flexi's *RIP and Print*:
+
+- **Get media from printer** reads the roll that's loaded straight from the HP: the media preset, its name and
+  its width, plus the printer's status and alerts. It asks automatically when you pick an HP. This is the same
+  thing Flexi's button does — Flexi's HP driver reads the printer's LEDM page `http://<printer>/DevMgmt/MediaHandlingDyn.xml`
+  (checked on the 335 at 10.1.1.23: Generic Self-Adhesive Vinyl, 1371 mm). Wide Format has a ⟳ From printer button too.
+- **A preview of the media** with the printer's origin bottom-right (inches from the right edge, along the feed),
+  margins shaded, and the job drawn where it will print. Drag the job to move it.
+- **Layout tab**: media width/length and margins, send now or hold in the queue, position, job size (width, height,
+  scale, fit to media), turn 0/90/180/270, copies with spacing across and along, repeat job.
+- **Tiling tab**: panels for jobs wider than the media, with overlap; trim marks; a printed dimensions label.
+- **Print mode & color tab**: media preset (the loaded one is marked), print mode, output profile, rendering intent,
+  whether to send CutContour lines, and what the printer reports.
+- The footer shows the printed size and how much media it uses. Like Flexi, it prints the art's box; *File › RIP and
+  Print the whole page* prints the full page.
+
 ## New in 1.5 — Design (layout and design like Flexi)
 
 A new **Design** page next to Cut Studio, laid out the way FlexiSIGN is: menus across the top (File, Edit, Arrange,

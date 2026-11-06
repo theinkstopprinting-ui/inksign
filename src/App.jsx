@@ -177,7 +177,7 @@ export default function App() {
       <main key={reloadKey} className={`content ${FULL.includes(tab) ? 'content-full' : ''}`}>
         {tab === 'home' && <Home devices={devices} statuses={statuses} jobs={jobs} userName={userState.current?.name} go={setTab} />}
         {/* The four tools stay mounted so work isn't lost when you switch pages */}
-        <div style={{ display: tab === 'design' ? 'contents' : 'none' }}><Design devices={devices} active={tab === 'design'} onJobsSent={() => {}} /></div>
+        <div style={{ display: tab === 'design' ? 'contents' : 'none' }}><Design devices={devices} jobs={jobs} active={tab === 'design'} onJobsSent={() => {}} /></div>
         <div style={{ display: tab === 'studio' ? 'contents' : 'none' }}><CutStudio devices={devices} jobs={jobs} incoming={incoming} onJobsSent={() => setTab('queue')} /></div>
         <div style={{ display: tab === 'printcut' ? 'contents' : 'none' }}><PrintCut devices={devices} incoming={incoming} onDevicesChanged={reloadDevices} /></div>
         <div style={{ display: tab === 'wide' ? 'contents' : 'none' }}><WideFormat devices={devices} incoming={incoming} onJobsSent={() => setTab('queue')} /></div>

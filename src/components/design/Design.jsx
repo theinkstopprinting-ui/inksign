@@ -7,7 +7,8 @@ import * as pdfjs from 'pdfjs-dist';
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import * as D from '../../lib/doc.js';
 import * as FX from '../../lib/docEffects.js';
-import { toScene, toSvg, cutGroups, cutPanels } from '../../lib/docExport.js';
+import { toScene, toSvg, cutGroups, cutPanels, cropScene } from '../../lib/docExport.js';
+import PrintWindow from '../PrintWindow.jsx';
 import { pdfToObjects, asGroup } from '../../lib/pdfObjects.js';
 import { makeText, retext, toOutlines, changeCase, serialText } from '../../lib/docText.js';
 import { qrPaths, code128Paths } from '../../lib/barcode.js';
@@ -21,7 +22,7 @@ import { SHAPES } from '../../lib/shapes.js';
 import { nest } from '../../lib/nest.js';
 import Canvas from './Canvas.jsx';
 import { PageProps, ObjectProps, FillStroke, ObjectList, SwatchBar, MM } from './Panels.jsx';
-import { ParamDialog, PrintDialog, CutDialog, PrintCutDialog, JobInfo, Modal } from './Dialogs.jsx';
+import { ParamDialog, CutDialog, PrintCutDialog, JobInfo, Modal } from './Dialogs.jsx';
 
 pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
 const api = window.inksign;
@@ -71,7 +72,7 @@ function imageToDataUrl(img) {
 }
 const b64ToBytes = (b64) => Uint8Array.from(atob(b64), (ch) => ch.charCodeAt(0));
 
-export default function Design({ devices, active, onJobsSent }) {
+export default function Design({ devices, jobs = [], active, onJobsSent }) {
   const [doc, setDoc] = useState(() => D.newDoc({ widthIn: 24, heightIn: 12 }));
   const [sel, setSel] = useState([]);
   const [tool, setTool] = useState('select');
@@ -316,7 +317,7 @@ export default function Design({ devices, active, onJobsSent }) {
       ['Import…', () => doImport(false), 'Ctrl+I'], ['Open PDF / AI / EPS as a new design…', () => { if (confirmLose()) doImport(true); }], null,
       ['Export PDF…', () => exportAs('pdf')], ['Export EPS…', () => exportAs('eps')], ['Export SVG…', () => exportAs('svg')], null,
       ['Document setup…', () => { setSel([]); setTab('props'); }],
-      ['RIP and Print…', () => setDialog({ kind: 'print' }), 'Ctrl+P'], ['Cut / Plot…', () => setDialog({ kind: 'cut' }), 'Ctrl+L'], ['Print & Cut…', () => setDialog({ kind: 'printcut' })], null,
+      ['RIP and Print…', () => openPrint('art'), 'Ctrl+P'], ['RIP and Print the whole page…', () => openPrint('page')], ['Cut / Plot…', () => setDialog({ kind: 'cut' }), 'Ctrl+L'], ['Print & Cut…', () => setDialog({ kind: 'printcut' })], null,
       ['Job info…', () => setDialog({ kind: 'jobinfo' })],
     ],
     Edit: [
@@ -493,7 +494,7 @@ export default function Design({ devices, active, onJobsSent }) {
 
   // ---- keyboard ----
   const handlers = useRef({});
-  handlers.current = { undo, redo, copy, paste, del, dup, save, open, newDoc, doImport, apply, fx, ids, selObjs, textObjs, setDialog, menus };
+  handlers.current = { openPrint: (w) => openPrint(w), undo, redo, copy, paste, del, dup, save, open, newDoc, doImport, apply, fx, ids, selObjs, textObjs, setDialog, menus };
   useEffect(() => {
     if (!active) return undefined;
     const h = (e) => {
@@ -514,7 +515,7 @@ export default function Design({ devices, active, onJobsSent }) {
         if (k === 'o') return run(H.open);
         if (k === 'n') return run(H.newDoc);
         if (k === 'i') return run(() => H.doImport(false));
-        if (k === 'p') return run(() => H.setDialog({ kind: 'print' }));
+        if (k === 'p') return run(() => H.openPrint('art'));
         if (k === 'l' && !e.altKey) return run(() => H.setDialog({ kind: 'cut' }));
         if (k === 'a') return run(() => setSel(docRef.current.objects.filter((o) => !o.locked && !o.hidden).map((o) => o.id)));
         if (k === 'g') return run(() => H.apply((d) => (e.shiftKey ? D.ungroup(d, H.ids) : D.group(d, H.ids))));
@@ -564,8 +565,24 @@ export default function Design({ devices, active, onJobsSent }) {
     return () => window.removeEventListener('pointerdown', h);
   }, [menu]);
 
+  // ---- RIP and Print: the art's box (like Flexi) or the whole page, previewed in the Print window ----
+  const openPrint = async (what) => {
+    const d = docRef.current;
+    const vis = d.objects.filter((o) => !o.hidden);
+    if (!vis.length) { flash('Nothing to print yet'); return; }
+    const whole = what === 'page';
+    let scene = toScene(d);
+    if (!whole) {
+      const b = D.selBounds(vis.filter((o) => !o.cut).length ? vis.filter((o) => !o.cut) : vis);
+      scene = cropScene(scene, b);
+    }
+    setBusy('Getting the job ready…');
+    try {
+      const preview = await api.design.pdfBytes(scene, 'omit');
+      setDialog({ kind: 'printwin', scene, preview, whole });
+    } catch (e) { flash(e.message); } finally { setBusy(''); }
+  };
   // ---- output helpers ----
-  const sceneNoMarks = () => toScene(docRef.current);
   const groupsFor = (what, onlySel, o) => cutPanels(cutGroups(docRef.current, what, onlySel ? sel : null), o);
   const cutLines = doc.objects.filter((o) => o.cut && !o.hidden).flatMap(D.placedPaths);
 
@@ -601,7 +618,7 @@ export default function Design({ devices, active, onJobsSent }) {
         <div className="dz-title">{doc.name}{dirty ? ' •' : ''}{filePath ? <small> — {filePath}</small> : null}</div>
         <div className="dz-actions">
           <button className="tb-btn" onClick={() => doImport(false)} title="Import PDF, AI, EPS, SVG, DXF or pictures (Ctrl+I)">⤓ Import</button>
-          <button className="tb-btn" onClick={() => setDialog({ kind: 'print' })} title="RIP and Print (Ctrl+P)">🖨 Print</button>
+          <button className="tb-btn" onClick={() => openPrint('art')} title="RIP and Print (Ctrl+P)">🖨 Print</button>
           <button className="tb-btn" onClick={() => setDialog({ kind: 'cut' })} title="Cut / Plot (Ctrl+L)">✂ Cut</button>
           <button className="tb-btn primary" onClick={() => setDialog({ kind: 'printcut' })} title="Print with registration marks, then contour cut">Print & Cut</button>
         </div>
@@ -704,7 +721,10 @@ export default function Design({ devices, active, onJobsSent }) {
       </div>
 
       {dialog?.kind === 'param' && <ParamDialog {...dialog} onClose={() => setDialog(null)} />}
-      {dialog?.kind === 'print' && <PrintDialog devices={devices} doc={doc} scene={sceneNoMarks()} defaultName={doc.name} onClose={() => setDialog(null)} onSent={(t) => { flash(t); onJobsSent && onJobsSent(); }} />}
+      {dialog?.kind === 'printwin' && (
+        <PrintWindow devices={devices} jobs={jobs} source={{ scene: dialog.scene }} previewPdfBase64={dialog.preview} jobSize={{ w: dialog.scene.w, h: dialog.scene.h }}
+          name={doc.name} hasCutLines={dialog.scene.items.some((i) => i.cut)} onClose={() => setDialog(null)} onSent={(t) => { flash(t); onJobsSent && onJobsSent(); }} />
+      )}
       {dialog?.kind === 'cut' && <CutDialog devices={devices} groupsFor={groupsFor} hasCutLines={cutLines.length > 0} hasSelection={sel.length > 0} defaultName={doc.name} onClose={() => setDialog(null)} onSent={(t) => { flash(t); onJobsSent && onJobsSent(); }} />}
       {dialog?.kind === 'printcut' && (
         <PrintCutDialog devices={devices} doc={doc} sceneFor={(marks) => toScene(docRef.current, { marks })} cutPaths={cutLines} defaultName={doc.name}

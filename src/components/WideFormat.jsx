@@ -257,6 +257,16 @@ export default function WideFormat({ devices, onJobsSent, incoming }) {
           <label className="tb-roll"><span>Roll</span>
             <span className="input-unit"><input type="number" value={rollIn} onChange={(e) => setRollIn(Number(e.target.value) || 0)} /><em>in</em></span>
           </label>
+          {direct && (
+            <button className="tb-btn" title="Read the loaded roll (media and width) from the printer" onClick={async () => {
+              try {
+                const st = await api.print.printerState(device.id);
+                if (st.media?.widthMm) setRollIn(Math.round((st.media.widthMm / 25.4) * 1000) / 1000);
+                if (st.mediaMatch) setHpMediaId(st.mediaMatch.id);
+                setMsg(`Loaded: ${st.media?.mediaType || 'unknown media'}, ${((st.media?.widthMm || 0) / 25.4).toFixed(2)}" wide`);
+              } catch (e) { setMsg(e.message); }
+            }}>⟳ From printer</button>
+          )}
         </div>
         <div className="tb-group tb-right">
           <div className="more-wrap">

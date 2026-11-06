@@ -112,3 +112,12 @@ export function cutPanels(groups, { weedMm = 0, mirror = false } = {}) {
 }
 
 export const closedCount = (paths) => paths.filter(isClosed).length;
+
+/** A scene cut down to a box (mm on the page) — Flexi prints the art's bounding box, not the whole page */
+export function cropScene(scene, b) {
+  const dx = -b.minX, dy = -b.minY;
+  const items = scene.items.map((it) => (it.kind === 'image'
+    ? { ...it, m: [it.m[0], it.m[1], it.m[2], it.m[3], it.m[4] + dx, it.m[5] + dy] }
+    : { ...it, paths: it.paths.map((p) => p.map((q) => ({ x: q.x + dx, y: q.y + dy }))) }));
+  return { ...scene, w: b.maxX - b.minX, h: b.maxY - b.minY, items };
+}

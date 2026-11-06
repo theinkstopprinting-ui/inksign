@@ -267,6 +267,53 @@ function registerIpc() {
     }
     return queue.add({ deviceId, action: 'file', filePath: file, name: job.name || 'Design', options, inkflow: job.inkflow || null });
   });
+  // ---- Print window (Flexi's RIP and Print): ask the printer what's loaded, then print a laid-out job ----
+  ipcMain.handle('print:printerState', async (_e, deviceId) => {
+    const d = store.getDevice(deviceId);
+    if (!d) throw new Error('Printer not found');
+    if (d.driver !== 'hp-latex' || !d.config.host) throw new Error(`${d.name} can't report its media — type the media size instead`);
+    const st = await require('./lib/hpStatus').printerState(d.config.host);
+    const M = require('./lib/hpMedia');
+    const list = M.listMedia(d.config.host);
+    const match = st.media && st.media.mediaKey ? list.find((m) => String(m.id) === String(st.media.mediaKey)) : null;
+    return { ...st, mediaMatch: match ? { id: match.id, name: match.name } : null };
+  });
+  ipcMain.handle('print:fieldOptions', (_e, deviceId, key, patch) => {
+    const d = store.getDevice(deviceId);
+    if (!d) return [];
+    return drivers.fieldOptions(d.driver, key, { ...d.config, ...(patch || {}) });
+  });
+  ipcMain.handle('print:send', async (_e, deviceId, source, layout, job = {}) => {
+    const d = store.getDevice(deviceId);
+    if (!d || d.kind !== 'printer') throw new Error('Pick a printer');
+    let src;
+    if (source.scene) src = (await require('./lib/designPdf').buildDesignPdf(source.scene, { cut: job.keepCutLines ? 'spot' : 'omit', title: job.name })).pdf;
+    else if (source.pdfBase64) src = Buffer.from(source.pdfBase64, 'base64');
+    else if (source.filePath) src = fs.readFileSync(source.filePath);
+    else throw new Error('Nothing to print');
+    const roll = ['hp-latex', 'flexi-hotfolder'].includes(d.driver);
+    let pdf = src;
+    if (roll && layout) pdf = (await require('./lib/printLayout').buildLayoutPdf(src, { ...layout, name: job.name })).pdf;
+    const file = path.join(designDir(), `${safeName(job.name)}-${Date.now()}.pdf`);
+    fs.writeFileSync(file, pdf);
+    const options = {};
+    if (d.driver === 'hp-latex') {
+      Object.assign(options, { orientation: 'across', offsetIn: (Number(job.rightMarginMm) || 0) / 25.4, removeCut: !job.keepCutLines });
+      if (job.mediaWidthMm) options.rollWidthIn = job.mediaWidthMm / 25.4;
+      if (job.hpMediaId) options.mediaId = job.hpMediaId;
+      if (job.hpModeKey) options.modeKey = job.hpModeKey;
+      if (job.icc) options.icc = job.icc;
+      if (job.intent != null && job.intent !== '') options.intent = Number(job.intent);
+    }
+    const repeat = Math.max(1, Math.min(50, Math.round(Number(job.repeat) || 1)));
+    const out = [];
+    for (let i = 0; i < repeat; i++) {
+      out.push(queue.add({ deviceId, action: 'file', filePath: file, name: repeat > 1 ? `${job.name || 'Print'} (${i + 1} of ${repeat})` : (job.name || 'Print'),
+        options, hold: job.sendMode === 'hold', holdMessage: job.sendMode === 'hold' ? 'Held — press Release to print' : undefined, inkflow: job.inkflow || null,
+        meta: layout ? { feet: (layout.usedL || 0) / 25.4 / 12 } : null }));
+    }
+    return out;
+  });
   ipcMain.handle('design:pdfBytes', async (_e, scene, cut) => {
     const { buildDesignPdf } = require('./lib/designPdf');
     return (await buildDesignPdf(scene, { cut: cut || 'spot' })).pdf.toString('base64');

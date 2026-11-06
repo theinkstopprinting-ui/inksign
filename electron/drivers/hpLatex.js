@@ -93,10 +93,10 @@ async function printBytes(cfg, pdf, { jobName, options = {}, orientation, progre
   const out = sink || J.tcpSink(cfg.host, Number(cfg.port) || 9100);
   let last = 0;
   const res = await J.printPdf(pdf, {
-    model: r.model, rollWidthIn: Number(cfg.rollWidthIn) || R.MODELS[r.model].maxWidthIn,
-    mediaId: r.media.id, mode: r.mode, icc: r.icc, intent: Number(cfg.intent) || 0,
+    model: r.model, rollWidthIn: Number(options.rollWidthIn) || Number(cfg.rollWidthIn) || R.MODELS[r.model].maxWidthIn,
+    mediaId: r.media.id, mode: r.mode, icc: r.icc, intent: Number(options.intent ?? cfg.intent) || 0,
     jobName, user: options.user || 'InkSign', orientation: orientation || options.orientation || 'auto',
-    offsetIn: Number(options.offsetIn ?? cfg.offsetIn) || 0, removeCut: cfg.removeCut !== false, cutterId: options.cutterId,
+    offsetIn: Number(options.offsetIn ?? cfg.offsetIn) || 0, removeCut: options.removeCut != null ? options.removeCut !== false : cfg.removeCut !== false, cutterId: options.cutterId,
     onProgress: (f, text) => { if (progress && Date.now() - last > 700) { last = Date.now(); progress(`Printing… ${text}`); } },
   }, out);
   const ft = (res.rows / R.DPI / 12);
