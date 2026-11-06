@@ -1,7 +1,7 @@
-# InkSign — v1.3
+# InkSign — v1.4
 
 Sign-shop RIP & cut program for The Ink Stop: vinyl cutting (Graphtec CE6000-60 Plus, US Cutter Titan 3),
-print & cut, HP Latex 335 / 115 jobs through Flexi 22, and Xerox 7845 imposition — working from InkFlow orders.
+print & cut, HP Latex 335 / 115 printed directly (no Flexi needed), and Xerox 7845 imposition — working from InkFlow orders.
 
 ## Install
 Run **InkSign-Setup-1.1.0.exe** on each shop PC (Windows may say it protected your PC: **More info → Run anyway**).
@@ -23,6 +23,28 @@ It adds InkSign to the desktop and Start menu. Installing a newer version over a
 | **Rolls & stock** | Your InkFlow sign rolls and feet left; low rolls flagged for reorder. |
 | **Usage** | Media and ink per job, by printer and media, plus labor timers; CSV export. |
 | **Settings** | InkFlow link, watch folders, people & PINs, phone view, shared setup between PCs, updates. |
+
+## New in 1.4 — HP Latex without Flexi, cutters matched to Flexi
+
+Captured on the shop PC on 5 Nov 2026: Flexi's Production Manager ports were switched to *FILE:* one at a time,
+test jobs sent, and every port put back (335 → TCP/IP 10.1.1.23, 115 → 10.1.1.21, Graphtec → Graphtec USB,
+Titan → USB_Printer_0). The captures are in `test/fixtures/flexi/` and the tests check InkSign against them.
+
+- **HP Latex 335 / 115 print directly.** InkSign renders the job at 600 dpi through the media's ICC profile and sends
+  the printer the same job Flexi does: PJL with the media id and print mode, a front-panel preview, then PCL3GUI rows
+  (K C M Y, HP "mode 10" compression), over the network on port 9100. Big banners are rendered in bands and streamed.
+  - **Media & print mode**: all of HP's media presets (with every print mode: passes, ink %, efficiency) are built in;
+    on a PC with Flexi the shop's own presets (e.g. Briteline IM2201) show up too. Pick them per printer, or per job in Wide Format.
+  - **Color**: *Auto* uses Flexi's own profile for that media and pass count (`ICCProfile\HP Latex 335`), or pick any profile.
+  - Cut lines (CutContour / Thru-cut spot colors) are left off the print, like Flexi's "Don't print cut lines".
+  - Existing HP setups switch over automatically. *HP Latex 335 (through Flexi)* is still there if you ever want Flexi back.
+- **Cutters send what Flexi sends** (byte for byte on the captured jobs):
+  - *Titan 3*: `MK0,0,<mark X>,<mark Y>;IN;PU…;PD;PD…;PU;!PG;` — reads its own marks; the cut is turned 90° to the print,
+    and Print & Cut draws Flexi's Titan marks (26 mm corners, 1 mm thick).
+  - *Graphtec CE6000*: `IN;FD<force>;VS<speed>;PA…;PR;PD;PD…;PU;PA<end>,0;!PG0;IN;`
+  - *Mutoh Kona*: no Flexi setup exists for it on this PC, so it stays on standard HP-GL. Add it in Flexi and use
+    *Learn from Flexi* if it needs anything special.
+- Captures are now saved as `.cap` (not `.prn`).
 
 ## New in 1.3 — easier to use
 - **Home** screen: "What are we making?" (vinyl, stickers, banners/signs, cards/flyers), every machine online/offline, what's waiting, what just finished.
@@ -135,16 +157,16 @@ folder (never touches your setup or the real Xerox) and writes the results.
 - **Variable data** (Press): numbered tickets (From / To / Digits) or a list (paste or open CSV — names, badges); text
   fields like `No. {Number}` or `{Name}` placed on each piece in any installed font (embedded), then laid out N-up.
   Cut Studio → Text: **Each line as its own piece** for name decals.
-- **Printing straight to the HPs without Flexi** isn't possible: the Latex 335/115 only accept jobs from HP-certified RIPs
-  (Flexi, ONYX, Caldera…) — there's no driver or open job format. InkSign keeps sending them through Flexi's hot folders.
+- *(1.4: replaced — InkSign now prints to the HPs directly, see above.)*
 
 ## Hook up each machine (Devices → Settings)
 **Graphtec CE6000-60 Plus / Titan 3 (USB)** — *Connected by: USB (Windows printer)* → pick the cutter's printer → Save →
 load scrap vinyl → **Test cut** (a 1" square with a triangle). Wrong size: change *HP-GL units per mm*.
 Flipped/sideways: change *Rotate* / *Mirror*. Graphtec panel COMMAND = AUTO or HP-GL. Close Flexi's cutter server while testing.
 
-**HP Latex 335 / 115 (Flexi 22)** — in Flexi Production Manager make a hot folder per printer (and per media if you like),
-then in InkSign browse to it. **Test print** drops a color-bar PDF and waits for Flexi to take it.
+**HP Latex 335 / 115** — enter the printer's IP address (335: 10.1.1.23, 115: 10.1.1.21), the roll width, media, print
+mode and color profile. **Test print** sends an 8" color-bar page straight to the printer. (Through Flexi instead: add
+*HP Latex … (through Flexi)* and browse to a Flexi hot folder.)
 
 **Xerox 7845** — IP address, port 9100 → **Test print**. Check that the first tray/duplex job comes out as chosen.
 

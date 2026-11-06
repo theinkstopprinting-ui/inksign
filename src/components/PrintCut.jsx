@@ -10,7 +10,8 @@ import Icon from './shell/Icon.jsx';
 
 const api = window.inksign;
 const SHEETS = { Letter: [8.5, 11], Legal: [8.5, 14], Tabloid: [11, 17], '12 x 18': [12, 18], '13 x 19': [13, 19] };
-const MARK_T = 0.5; // mark line thickness, mm
+const MARK_T_DEFAULT = 0.5; // mark line thickness, mm (Graphtec)
+const TITAN_MARK = { size: 26, thickness: 1 }; // the Titan's marks as Flexi prints them: 26 mm L corners, 1 mm thick
 let nextId = 1;
 const inch = (mm) => (mm / MM).toFixed(2);
 const toMm = (v) => (Number(v) || 0) * MM;
@@ -46,7 +47,7 @@ function NumIn({ label, value, onChange, step = 0.1 }) {
 }
 
 // Four L marks for one frame — same geometry as electron/lib/printCutPdf.js markRects().
-function frameMarks(sheetW, f, margin, size) {
+function frameMarks(sheetW, f, margin, size, MARK_T = MARK_T_DEFAULT) {
   const x0 = margin, y0 = f.y0 + margin, x1 = sheetW - margin, y1 = f.y0 + f.h - margin, s = size, t = MARK_T;
   return [
     [x0, y0, s, t], [x0, y0, t, s], [x1 - s, y0, s, t], [x1 - t, y0, t, s],
@@ -104,7 +105,8 @@ export default function PrintCut({ devices, incoming, onDevicesChanged }) {
     for (const im of j.images) if (!conv.has(im.dataUrl)) conv.set(im.dataUrl, await imageToCmyk(im.dataUrl, fresh.profileId, fresh.intent));
     return { ...j, images: j.images.map((im) => ({ ...im, cmyk: conv.get(im.dataUrl), cmykKey: im.dataUrl.slice(-64) + im.dataUrl.length })) };
   };
-  const isHp = printer?.driver === 'flexi-hotfolder';
+  const isHp = printer?.driver === 'flexi-hotfolder' || printer?.driver === 'hp-latex';
+  const hpRollIn = printer?.config?.rollWidthIn || printer?.config?.mediaWidthIn || 54;
 
   const [sheetName, setSheetName] = useState('Letter');
   const [landscape, setLandscape] = useState(false);
@@ -112,6 +114,9 @@ export default function PrintCut({ devices, incoming, onDevicesChanged }) {
   const [segLenIn, setSegLenIn] = useState(36);
   const [marginIn, setMarginIn] = useState(0.4);
   const [markMm, setMarkMm] = useState(10);
+  const titanMarks = cutter?.config?.hpglStyle === 'titan';
+  const MARK_T = titanMarks ? TITAN_MARK.thickness : MARK_T_DEFAULT;
+  useEffect(() => { setMarkMm(titanMarks ? TITAN_MARK.size : 10); }, [titanMarks]);
   const [gapIn, setGapIn] = useState(0.125);
   const [items, setItems] = useState([]);
   const [selId, setSelId] = useState(null);
@@ -131,7 +136,7 @@ export default function PrintCut({ devices, incoming, onDevicesChanged }) {
   const isRoll = sheetName === 'Roll' && isHp;
 
   const [sheetW, sheetH] = useMemo(() => {
-    if (isRoll) return [toMm(printer?.config?.mediaWidthIn || 54), toMm(rollLenIn)];
+    if (isRoll) return [toMm(hpRollIn), toMm(rollLenIn)];
     const s = SHEETS[sheetName] || SHEETS.Letter;
     return landscape ? [toMm(s[1]), toMm(s[0])] : [toMm(s[0]), toMm(s[1])];
   }, [sheetName, landscape, isRoll, printer, rollLenIn]);
@@ -367,7 +372,7 @@ export default function PrintCut({ devices, incoming, onDevicesChanged }) {
           {areas.map((a, i) => (
             <rect key={`a${i}`} x={a.x0} y={a.y0} width={a.x1 - a.x0} height={a.y1 - a.y0} className="safe" strokeWidth={sw} strokeDasharray={`${4 * sw} ${3 * sw}`} />
           ))}
-          {useMarks && frames.flatMap((f, fi) => frameMarks(sheetW, f, margin, markMm).map(([x, y, w, h], i) => <rect key={`m${fi}-${i}`} x={x} y={y} width={w} height={h} fill="#000" />))}
+          {useMarks && frames.flatMap((f, fi) => frameMarks(sheetW, f, margin, markMm, MARK_T).map(([x, y, w, h], i) => <rect key={`m${fi}-${i}`} x={x} y={y} width={w} height={h} fill="#000" />))}
           {frames.length > 1 && frames.map((f, i) => (
             <g key={`s${i}`}>
               {i > 0 && <line x1={0} x2={sheetW} y1={f.y0} y2={f.y0} stroke="#ff7a1a" strokeWidth={sw * 1.5} strokeDasharray={`${8 * sw} ${5 * sw}`} />}
@@ -407,7 +412,7 @@ export default function PrintCut({ devices, incoming, onDevicesChanged }) {
           <div className="box-title">Sheet</div>
           <select value={sheetName} onChange={(e) => setSheetName(e.target.value)}>
             {Object.keys(SHEETS).map((s) => <option key={s}>{s}</option>)}
-            {isHp && <option value="Roll">Roll ({printer?.config?.mediaWidthIn || 54}" wide)</option>}
+            {isHp && <option value="Roll">Roll ({hpRollIn}" wide)</option>}
           </select>
           {isRoll
             ? (
@@ -421,7 +426,7 @@ export default function PrintCut({ devices, incoming, onDevicesChanged }) {
             <NumIn label="Edge margin (in)" value={marginIn} onChange={setMarginIn} step={0.05} />
             <NumIn label="Gap (in)" value={gapIn} onChange={setGapIn} step={0.0625} />
           </div>
-          {useMarks && <NumIn label="Mark size (mm, 4–20)" value={markMm} onChange={(v) => setMarkMm(Math.min(20, Math.max(4, v)))} step={1} />}
+          {useMarks && <NumIn label={`Mark size (mm, 4–${titanMarks ? 30 : 20})`} value={markMm} onChange={(v) => setMarkMm(Math.min(titanMarks ? 30 : 20, Math.max(4, v)))} step={1} />}
           <label className="mini-field"><span>White ink (clear / colored media)</span>
             <select value={whiteMode} onChange={(e) => setWhiteMode(e.target.value)}>
               <option value="none">None</option><option value="shape">Under the art (follows its shape)</option><option value="box">Box under each piece</option>
@@ -452,7 +457,7 @@ export default function PrintCut({ devices, incoming, onDevicesChanged }) {
           <div className="box-title">How to run it</div>
           {route === 'direct' ? (
             <ol>
-              {isHp && <li>In Flexi, this hot folder must print at <b>100% size</b>, with <b>no</b> Flexi print &amp; cut marks — the marks are already in the file.</li>}
+              {printer?.driver === 'flexi-hotfolder' && <li>In Flexi, this hot folder must print at <b>100% size</b>, with <b>no</b> Flexi print &amp; cut marks — the marks are already in the file.</li>}
               <li>Print. Load the print in the cutter with the <b>bottom-left mark</b> toward the cutter's origin.</li>
               {String(cal.regCommands || '').trim()
                 ? <li>{cutter?.name} reads the marks on its own (mark-reading commands are set up) — just press <b>2. Cut</b>.</li>

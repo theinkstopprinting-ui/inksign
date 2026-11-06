@@ -28,7 +28,7 @@ test('roll position, pause and cancel through the real queue', async () => {
   store.init(fs.mkdtempSync(path.join(os.tmpdir(), 'ctl-')));
   const { srv, port, got } = await fakeCutter();
   const g = store.getDevices().find((d) => d.presetId === 'graphtec-ce6000-60plus');
-  store.saveDevice({ id: g.id, name: g.name, config: { connection: 'tcp', tcpHost: '127.0.0.1', tcpPort: port, overcutMm: 0, advanceMm: 0 } });
+  store.saveDevice({ id: g.id, name: g.name, config: { connection: 'tcp', tcpHost: '127.0.0.1', tcpPort: port, overcutMm: 0, advanceMm: 0, hpglStyle: 'standard' } });
   store.setDeviceState(g.id, { continueRoll: true, rollUsedMm: 0 });
   queue.init(store, drivers, () => {});
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cj-'));

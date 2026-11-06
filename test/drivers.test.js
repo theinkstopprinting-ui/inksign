@@ -108,7 +108,8 @@ test('store seeds the six shop machines; queue runs a job', async () => {
   queue.add({ deviceId: x.id, action: 'test' });
   const g = store.getDevices().find((d) => d.presetId === 'graphtec-ce6000-60plus');
   queue.add({ deviceId: g.id, action: 'test' });
-  await new Promise((r) => setTimeout(r, 1500));
+  // wait for both jobs to finish (up to 20 s — the suite runs Ghostscript tests alongside)
+  for (let t = 0; t < 200 && store.getJobs().some((j) => ['queued', 'sending'].includes(j.status)); t++) await new Promise((r) => setTimeout(r, 100));
   srv.close();
   const jobs = store.getJobs();
   assert.strictEqual(jobs.find((j) => j.deviceId === x.id).status, 'done');

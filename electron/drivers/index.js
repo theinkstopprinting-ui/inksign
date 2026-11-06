@@ -3,9 +3,10 @@
 const cutter = require('./cutter');
 const flexi = require('./flexiHotFolder');
 const net = require('./networkPrinter');
+const hpLatex = require('./hpLatex');
 const presets = require('./presets');
 
-const DRIVERS = Object.fromEntries([cutter, flexi, net].map((d) => [d.id, d]));
+const DRIVERS = Object.fromEntries([cutter, hpLatex, flexi, net].map((d) => [d.id, d]));
 
 function get(id) {
   const d = DRIVERS[id];
@@ -27,4 +28,10 @@ function catalog() {
   };
 }
 
-module.exports = { get, defaultsFor, catalog, presets };
+// Choices for drop-downs that depend on other settings (HP media -> its print modes, profiles on this PC)
+function fieldOptions(driverId, key, cfg) {
+  const d = get(driverId);
+  return d.fieldOptions ? d.fieldOptions(key, cfg || {}) : [];
+}
+
+module.exports = { get, defaultsFor, catalog, presets, fieldOptions };

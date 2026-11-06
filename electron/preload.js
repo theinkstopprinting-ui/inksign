@@ -34,6 +34,7 @@ contextBridge.exposeInMainWorld('inksign', {
     save: (d) => ipcRenderer.invoke('devices:save', d),
     remove: (id) => ipcRenderer.invoke('devices:delete', id),
     status: (id) => ipcRenderer.invoke('devices:status', id),
+    fieldOptions: (driverId, key, cfg) => ipcRenderer.invoke('devices:fieldOptions', driverId, key, cfg),
   },
   fonts: {
     list: () => ipcRenderer.invoke('fonts:list'),

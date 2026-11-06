@@ -110,10 +110,11 @@ export default function ColorPage({ devices }) {
 
       <section className="card">
         <h2 className="card-title">Printer profiles</h2>
-        <p className="muted small">Press and Print &amp; Cut convert photos and PNG/JPG artwork to CMYK with this profile before sending to the printer (PDFs go as they are). The HP Latex printers are color-managed by Flexi — set their media profiles there.</p>
+        <p className="muted small">Press and Print &amp; Cut convert photos and PNG/JPG artwork to CMYK with this profile before sending to the printer (PDFs go as they are). The HP Latex printers use the profile picked for their media in each printer's settings (Flexi's own HP profiles are found automatically).</p>
         {printers.map((d) => {
           const a = settings.colorProfiles?.[d.id] || {};
           if (d.driver === 'flexi-hotfolder') return <div key={d.id} className="prof-row"><span>{d.name}</span><span className="muted small">Flexi handles color</span></div>;
+          if (d.driver === 'hp-latex') return <div key={d.id} className="prof-row"><span>{d.name}</span><span className="muted small">Uses the media's profile — pick it in Devices → {d.name} → Settings</span></div>;
           return (
             <div key={d.id} className="prof-row">
               <span>{d.name}</span>

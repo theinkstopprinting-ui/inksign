@@ -43,7 +43,9 @@ async function pump(deviceId) {
         const drv = drivers.get(device.driver);
         const miss = drv.missing(device.config);
         if (miss.length) throw new Error(`Device needs setup: ${miss.join(', ')}`);
-        const ctx = { jobName: job.name, deviceName: device.name, copies: job.copies, options: job.options || {} };
+        let lastMsg = 0;
+        const progress = (text) => { if (Date.now() - lastMsg > 500) { lastMsg = Date.now(); update(job, { message: text }); } };
+        const ctx = { jobName: job.name, deviceName: device.name, copies: job.copies, options: job.options || {}, progress };
         let res;
         if (job.action === 'test') res = await drv.sendTest(device.config, ctx);
         else if (job.action === 'paths') {

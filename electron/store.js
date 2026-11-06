@@ -20,13 +20,32 @@ function writeJson(name, data) {
 
 function newId() { return crypto.randomUUID(); }
 
-function deviceFromPreset(presetId, name) {
+function deviceFromPreset(presetId, name, config = {}) {
   const p = drivers.presets.byId(presetId);
   if (!p) throw new Error(`Unknown preset ${presetId}`);
   return {
     id: newId(), name: name || p.name, presetId: p.id, driver: p.driver, kind: p.kind,
-    config: { ...drivers.defaultsFor(p.driver), ...p.config },
+    config: { ...drivers.defaultsFor(p.driver), ...p.config, ...config },
   };
+}
+
+// 1.4: the HP Latex printers are printed directly by InkSign instead of through a Flexi hot folder.
+// The shop's printers (captured on 5 Nov 2026): Latex 335 at 10.1.1.23, Latex 115 at 10.1.1.21.
+const HP_HOSTS = { 'hp-latex-335': '10.1.1.23', 'hp-latex-115': '10.1.1.21' };
+function migrateHpDirect(list) {
+  let changed = false;
+  for (const d of list) {
+    if (!HP_HOSTS[d.presetId] || d.driver !== 'flexi-hotfolder') continue;
+    const old = d.config || {};
+    d.driver = 'hp-latex';
+    d.config = {
+      ...drivers.defaultsFor('hp-latex'), ...drivers.presets.byId(d.presetId).config,
+      host: old.printerHost || HP_HOSTS[d.presetId],
+      flexiHotFolder: old.hotFolder || '', // kept in case the shop goes back to Flexi
+    };
+    changed = true;
+  }
+  return changed;
 }
 
 function init(userDataDir) {
@@ -34,7 +53,7 @@ function init(userDataDir) {
   fs.mkdirSync(dir, { recursive: true });
   devices = readJson('devices.json', null);
   if (!Array.isArray(devices)) {
-    devices = drivers.presets.shopDefaults.map((d) => deviceFromPreset(d.presetId, d.name));
+    devices = drivers.presets.shopDefaults.map((d) => deviceFromPreset(d.presetId, d.name, d.config));
     writeJson('devices.json', devices);
   }
   // Xerox set up before the print server: tell InkSign which printer description (PPD) it uses
@@ -49,6 +68,15 @@ function init(userDataDir) {
   }
   for (const d of devices) {
     if (d.presetId === 'xerox-7845' && !d.config?.model) { d.config = { ...d.config, model: 'xerox-7845' }; migrated = true; }
+  }
+  if (migrateHpDirect(devices)) migrated = true;
+  // 1.4: the cutters speak HP-GL the way Flexi sends it to them (Titan also reads its marks with MK)
+  for (const d of devices) {
+    if (!['graphtec-ce6000-60plus', 'uscutter-titan3-68'].includes(d.presetId) || d.config?.hpglStyle) continue;
+    const pc = drivers.presets.byId(d.presetId).config;
+    d.config = { ...d.config, hpglStyle: pc.hpglStyle };
+    if (d.presetId === 'uscutter-titan3-68' && !String(d.config.regCommands || '').trim()) d.config = { ...d.config, regCommands: pc.regCommands, regRotate: pc.regRotate };
+    migrated = true;
   }
   if (migrated) writeJson('devices.json', devices);
   jobs = readJson('jobs.json', []);
@@ -162,6 +190,7 @@ function importShared({ settings, devices: shared, library, localKeys }) {
       const keep = m ? Object.fromEntries(Object.entries(m.config).filter(([k]) => localKeys.includes(k))) : {};
       return { ...(m || {}), id: s.id, name: s.name, presetId: s.presetId, driver: s.driver, kind: s.kind, config: { ...drivers.defaultsFor(s.driver), ...s.config, ...keep }, state: m ? m.state : undefined };
     });
+    migrateHpDirect(devices); // a main PC still on 1.3 shares Flexi-hot-folder HP setups
     writeJson('devices.json', devices);
   }
 }

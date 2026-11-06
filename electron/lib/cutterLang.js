@@ -76,10 +76,44 @@ function prepare(paths, cfg = {}) {
   return addOvercut(shifted, cfg.overcutMm);
 }
 
+// HP-GL exactly as Flexi 22 sends it to the shop's cutters (captured 5 Nov 2026):
+//  Titan 3:   IN;PU x,y;PD;PD x,y;PD x,y;…;PU;  …  !PG;            (marks: MK0,0,dx,dy; first)
+//  Graphtec:  IN;FD35;VS50;PA x,y;PR;PD;PD dx,dy;…;PU;  …  PA end,0;!PG0;IN;
+function flexiStyleHPGL(prepared, cfg, u) {
+  const style = cfg.hpglStyle;
+  let s = 'IN;';
+  if (style === 'graphtec') {
+    if (isNum(cfg.force)) s += `FD${Number(cfg.force)};`;
+    if (isNum(cfg.speed)) s += `VS${Number(cfg.speed)};`;
+  } else {
+    if (isNum(cfg.speed)) s += `VS${Number(cfg.speed)};`;
+    if (isNum(cfg.force)) s += `FS${Number(cfg.force)};`;
+  }
+  for (const p of prepared) {
+    if (p.length < 2) continue;
+    const pts = p.map((pt) => [u(pt.x), u(pt.y)]);
+    if (style === 'graphtec') {
+      s += `PA${pts[0][0]},${pts[0][1]};PR;PD;`;
+      for (let i = 1; i < pts.length; i++) s += `PD${pts[i][0] - pts[i - 1][0]},${pts[i][1] - pts[i - 1][1]};`;
+      s += 'PU;';
+    } else {
+      s += `PU${pts[0][0]},${pts[0][1]};PD;`;
+      for (let i = 1; i < pts.length; i++) s += `PD${pts[i][0]},${pts[i][1]};`;
+      s += 'PU;';
+    }
+  }
+  if (style === 'graphtec') {
+    const b = bounds(prepared);
+    s += `PA${u(b.maxX + (Number(cfg.advanceMm) || 0))},0;!PG0;IN;`;
+  } else s += '!PG;';
+  return s;
+}
+
 function toHPGL(paths, cfg = {}) {
   const upm = Number(cfg.unitsPerMm) || 40;
   const u = (v) => Math.round(v * upm);
   const prepared = prepare(paths, cfg);
+  if (cfg.hpglStyle === 'titan' || cfg.hpglStyle === 'graphtec') return flexiStyleHPGL(prepared, cfg, u);
   let s = cfg.noInit ? '' : 'IN;';
   if (isNum(cfg.speed)) s += `VS${Number(cfg.speed)};`;
   if (isNum(cfg.force)) s += `FS${Number(cfg.force)};`;
@@ -170,4 +204,4 @@ function testPattern() {
   return [square, tri];
 }
 
-module.exports = { transformPaths, bounds, addOvercut, toHPGL, toGPGL, generate, jobExtent, moveTo, testPattern, unescapeCommands, MM_PER_IN };
+module.exports = { transformPaths, bounds, addOvercut, toHPGL, toGPGL, generate, registeredJob, jobExtent, moveTo, testPattern, unescapeCommands, MM_PER_IN };

@@ -102,9 +102,10 @@ export default function FlexiCapture({ devices, onClose }) {
                 </div>
               </>) : (<>
                 <ol className="fc-list">
-                  <li>In Flexi Production Manager, right-click the <b>{dev?.name}</b> setup → <b>Properties</b> → <b>Port</b> → choose <b>File</b>. OK.</li>
-                  <li>Send the test file from Flexi to that setup. Flexi asks where to save — save it anywhere (Desktop is fine).</li>
-                  <li>Click <b>Pick the file Flexi saved</b>. Then set the port back to <b>USB</b>.</li>
+                  <li>In Flexi Production Manager, click the <b>▼</b> on the <b>{dev?.name}</b> setup's tab → <b>Change port…</b>. Write down the current port, then choose <b>FILE:</b>.</li>
+                  <li>Untick <b>Prompt for file path</b>, tick <b>Use custom extension</b> = <b className="mono">cap</b>, set the folder to <b className="mono">Downloads\InkSign captures</b>. OK.</li>
+                  <li>Send the test file from Flexi to that setup (cut jobs: Flexi asks you to confirm the mark scan — click OK).</li>
+                  <li>Click <b>Pick the file Flexi saved</b>. Then put the port back the same way.</li>
                 </ol>
                 <button className="btn primary" disabled={!dev} onClick={pick}><Icon name="file" size={15} /> Pick the file Flexi saved…</button>
               </>)}

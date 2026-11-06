@@ -7,7 +7,7 @@ function visible(field, cfg) {
   return Object.entries(field.showIf).every(([k, v]) => String(cfg[k] ?? '') === String(v));
 }
 
-function Field({ field, value, onChange, printers, comPorts, refreshLists }) {
+function Field({ field, value, onChange, printers, comPorts, refreshLists, dynOptions }) {
   const id = `f-${field.key}`;
   let input;
   switch (field.type) {
@@ -18,6 +18,19 @@ function Field({ field, value, onChange, printers, comPorts, refreshLists }) {
         </select>
       );
       break;
+    case 'dynselect': {
+      // Choices worked out by the driver (HP media list, the chosen media's print modes, profiles on this PC)
+      const opts = dynOptions[field.optionsFrom] || [];
+      const groups = [...new Set(opts.map((o) => o.group || ''))];
+      const option = (o) => <option key={o.value} value={o.value}>{o.label}</option>;
+      input = (
+        <select id={id} value={value ?? ''} onChange={(e) => onChange(e.target.value)}>
+          {value && !opts.some((o) => o.value === value) && <option value={value}>{opts.length ? 'Not available — pick again' : 'Loading…'}</option>}
+          {groups.length > 1 ? groups.map((g) => (g ? <optgroup key={g} label={g}>{opts.filter((o) => (o.group || '') === g).map(option)}</optgroup> : opts.filter((o) => !o.group).map(option))) : opts.map(option)}
+        </select>
+      );
+      break;
+    }
     case 'textarea':
       input = <textarea id={id} rows={4} className="code-input" value={value ?? ''} onChange={(e) => onChange(e.target.value)} spellCheck={false} />;
       break;
@@ -78,6 +91,7 @@ export default function DeviceEditor({ catalog, device, onClose, onSaved }) {
   const [printers, setPrinters] = useState([]);
   const [comPorts, setComPorts] = useState([]);
   const [error, setError] = useState('');
+  const [dynOptions, setDynOptions] = useState({});
 
   const preset = catalog.presets.find((p) => p.id === presetId);
   const driver = useMemo(() => preset && catalog.drivers.find((d) => d.id === preset.driver), [preset, catalog]);
@@ -87,6 +101,16 @@ export default function DeviceEditor({ catalog, device, onClose, onSaved }) {
     setComPorts(await api.system.comPorts());
   };
   useEffect(() => { refreshLists(); }, []);
+  // Re-ask the driver for dependent choices when the settings they hang on change
+  const dynKeys = driver ? driver.fields.filter((f) => f.type === 'dynselect').map((f) => f.optionsFrom) : [];
+  const dynDeps = JSON.stringify([driver?.id, cfg.host, cfg.model, cfg.mediaId]);
+  useEffect(() => {
+    if (!driver || !dynKeys.length || !api.devices.fieldOptions) return undefined;
+    let live = true;
+    Promise.all(dynKeys.map((k) => api.devices.fieldOptions(driver.id, k, cfg).then((o) => [k, o]).catch(() => [k, []])))
+      .then((pairs) => { if (live) setDynOptions(Object.fromEntries(pairs)); });
+    return () => { live = false; };
+  }, [dynDeps]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const choosePreset = (p) => {
     setPresetId(p.id);
@@ -148,8 +172,8 @@ export default function DeviceEditor({ catalog, device, onClose, onSaved }) {
               <React.Fragment key={f.key}>
                 {f.section && <h3 className="section-title form-section">{f.section}</h3>}
                 <div className={f.type === 'textarea' ? 'field-wide' : undefined} style={f.type === 'textarea' ? { gridColumn: '1 / -1' } : undefined}>
-                  <Field field={f} value={cfg[f.key]} printers={printers} comPorts={comPorts}
-                    refreshLists={refreshLists} onChange={(v) => setCfg((c) => ({ ...c, [f.key]: v }))} />
+                  <Field field={f} value={cfg[f.key]} printers={printers} comPorts={comPorts} dynOptions={dynOptions}
+                    refreshLists={refreshLists} onChange={(v) => setCfg((c) => ({ ...c, [f.key]: v, ...(f.key === 'mediaId' ? { modeKey: '' } : {}) }))} />
                 </div>
               </React.Fragment>
             ))}

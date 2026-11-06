@@ -163,6 +163,30 @@ function start(outFile) {
         check('Nix USB support loads', typeof nixInfo.available === 'boolean', nixInfo.bridge ? `bridge ${nixInfo.bridge}` : 'no NixBridge on this PC (paste readings works)');
       }
 
+      // 6b) HP Latex printed directly, and cutters in Flexi's style (1.4)
+      {
+        const store = require('./store');
+        const drivers = require('./drivers');
+        const hp = store.getDevices().find((d) => d.presetId === 'hp-latex-335');
+        check('HP Latex 335 is printed directly (no Flexi)', hp && hp.driver === 'hp-latex' && hp.config.host === '10.1.1.23', hp && `${hp.driver} @ ${hp.config.host}`);
+        const titan = store.getDevices().find((d) => d.presetId === 'uscutter-titan3-68');
+        check('Titan 3 speaks HP-GL like Flexi (MK marks)', titan && titan.config.hpglStyle === 'titan' && /MK0,0/.test(titan.config.regCommands || ''));
+        const net = require('net');
+        const got = [];
+        const fake = net.createServer((sk) => sk.on('data', (d) => got.push(d)));
+        await new Promise((r) => fake.listen(0, '127.0.0.1', r));
+        const t2 = Date.now();
+        let res = null, err = null;
+        try { res = await drivers.get('hp-latex').sendTest({ ...hp.config, host: '127.0.0.1', port: fake.address().port, model: 'hp-latex-115', rollWidthIn: 54, mediaId: '100100', modeKey: '' }, { deviceName: 'HP Latex 115' }); } catch (e) { err = e; }
+        await new Promise((r) => setTimeout(r, 300));
+        fake.close();
+        const job = require('./lib/hpRaster').parseJob(Buffer.concat(got));
+        check('HP test page made and sent (PJL + PCL3GUI rows)', !err && job.pjl.MEDIAID === '100100' && job.rollPx === 32400 && job.rows.length === 4800 && job.preview,
+          err ? String(err.message || err) : `${res.message} in ${Date.now() - t2} ms`);
+        const media = drivers.fieldOptions('hp-latex', 'hpMedia', hp.config);
+        check('HP media presets load', media.length > 40, `${media.length} media`);
+      }
+
       // 7) The app window and pages render
       const win = getWin();
       if (win.webContents.isLoading()) await new Promise((r) => win.webContents.once('did-finish-load', r));

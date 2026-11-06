@@ -36,6 +36,7 @@ function createWindow() {
 function registerIpc() {
   ipcMain.handle('catalog', () => drivers.catalog());
   ipcMain.handle('devices:list', () => store.getDevices());
+  ipcMain.handle('devices:fieldOptions', (_e, driverId, key, cfg) => drivers.fieldOptions(driverId, key, cfg));
   // Device setup and calibration are owner-only when sign-in is on
   ipcMain.handle('devices:save', (_e, d) => { shop.requireOwner(); const r = store.saveDevice(d); shop.changed(); return r; });
   ipcMain.handle('devices:delete', (_e, id) => { shop.requireOwner(); store.deleteDevice(id); shop.changed(); });
@@ -407,7 +408,7 @@ function registerIpc() {
   ipcMain.handle('wide:layout', (_e, items, opts) => stripLayout(layoutWide({ items, ...opts })));
   ipcMain.handle('wide:send', async (_e, deviceId, items, opts, job) => {
     const d = store.getDevice(deviceId);
-    if (!d || d.driver !== 'flexi-hotfolder') throw new Error('Pick an HP printer (Flexi hot folder)');
+    if (!d || !['hp-latex', 'flexi-hotfolder'].includes(d.driver)) throw new Error('Pick an HP Latex printer');
     const L = layoutWide({ items, ...opts });
     const { pdf } = await buildWidePdf(L, { showGrommets: true, white: opts.white ? { ...opts.white } : null });
     const file = path.join(printDir(), `${safe(job.name)}-${Date.now()}.pdf`);
@@ -420,7 +421,11 @@ function registerIpc() {
       mediaSqFt: L.mediaSqFt, printedSqFt: L.printedSqFt, inkMl,
       mediaCost: L.mediaSqFt * (Number(media.costPerSqFt) || 0), inkCost: inkMl * (Number(st.inkCostPerMl) || 0),
     };
-    return queue.add({ deviceId, action: 'file', filePath: file, name: job.name, options: { media: job.media }, usage, inkflow: job.inkflow, meta: job.rollId ? { rollId: job.rollId, feet: L.lengthIn / 12 } : null });
+    // HP direct: the layout's x runs along the roll; the job can pick its own HP media / print mode
+    const options = { media: job.media, orientation: 'along' };
+    if (job.hpMediaId) options.mediaId = job.hpMediaId;
+    if (job.hpModeKey) options.modeKey = job.hpModeKey;
+    return queue.add({ deviceId, action: 'file', filePath: file, name: job.name, options, usage, inkflow: job.inkflow, meta: job.rollId ? { rollId: job.rollId, feet: L.lengthIn / 12 } : null });
   });
   ipcMain.handle('wide:save', async (_e, items, opts, name) => {
     const L = layoutWide({ items, ...opts });

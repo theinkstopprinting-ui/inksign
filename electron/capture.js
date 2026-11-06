@@ -26,7 +26,7 @@ function lanIps() {
 }
 
 function save(machine, buf, how) {
-  const name = `${slug(machine)}_${stamp()}.prn`;
+  const name = `${slug(machine)}_${stamp()}.cap`; // not .prn: Windows treats PRN as a device name in some tools
   const file = path.join(outDir(), name);
   fs.writeFileSync(file, buf);
   try { fs.mkdirSync(path.join(dataDir, 'captures'), { recursive: true }); fs.writeFileSync(path.join(dataDir, 'captures', name), buf); } catch { /* best effort */ }

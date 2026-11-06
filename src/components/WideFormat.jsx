@@ -48,7 +48,7 @@ const finishText = (it) => [it.hemIn > 0 ? (it.hemFill === 'mirror' ? `wrap ${it
 
 export default function WideFormat({ devices, onJobsSent, incoming }) {
   const [order, setOrder] = useState(null);
-  const hps = devices.filter((d) => d.driver === 'flexi-hotfolder');
+  const hps = devices.filter((d) => d.driver === 'hp-latex' || d.driver === 'flexi-hotfolder');
   const [deviceId, setDeviceId] = useState('');
   useEffect(() => { if (!hps.some((d) => d.id === deviceId)) setDeviceId(hps[0]?.id || ''); }, [devices]); // eslint-disable-line react-hooks/exhaustive-deps
   const device = hps.find((d) => d.id === deviceId);
@@ -58,7 +58,23 @@ export default function WideFormat({ devices, onJobsSent, incoming }) {
   const mediaInfo = settings?.wideMedia?.find((m) => m.name === media);
 
   const [rollIn, setRollIn] = useState(54);
-  useEffect(() => { if (device?.config?.mediaWidthIn) setRollIn(Number(device.config.mediaWidthIn)); }, [deviceId]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { const w = device?.config?.rollWidthIn || device?.config?.mediaWidthIn; if (w) setRollIn(Number(w)); }, [deviceId]); // eslint-disable-line react-hooks/exhaustive-deps
+  // HP printed directly: the printer's media preset and print mode for this job (defaults from the printer's settings)
+  const direct = device?.driver === 'hp-latex';
+  const [hpMediaId, setHpMediaId] = useState('');
+  const [hpModeKey, setHpModeKey] = useState('');
+  const [hpMediaList, setHpMediaList] = useState([]);
+  const [hpModes, setHpModes] = useState([]);
+  useEffect(() => {
+    if (!direct) return;
+    setHpMediaId(device.config.mediaId || '150100');
+    setHpModeKey(device.config.modeKey || '');
+    api.devices.fieldOptions('hp-latex', 'hpMedia', device.config).then(setHpMediaList).catch(() => setHpMediaList([]));
+  }, [deviceId, direct]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!direct || !hpMediaId) return;
+    api.devices.fieldOptions('hp-latex', 'hpMode', { ...device.config, mediaId: hpMediaId }).then(setHpModes).catch(() => setHpModes([]));
+  }, [hpMediaId, deviceId, direct]); // eslint-disable-line react-hooks/exhaustive-deps
   const [gapIn, setGapIn] = useState(1);
   const [overlapIn, setOverlapIn] = useState(1);
   const [allowRotate, setAllowRotate] = useState(true);
@@ -200,7 +216,7 @@ export default function WideFormat({ devices, onJobsSent, incoming }) {
 
   const send = async () => {
     setMsg(''); setSending(true);
-    try { await api.wide.send(deviceId, items, opts, { name, media, inkflow: order, rollId: rollId || undefined }); onJobsSent(); }
+    try { await api.wide.send(deviceId, items, opts, { name, media, inkflow: order, rollId: rollId || undefined, ...(direct ? { hpMediaId, hpModeKey } : {}) }); onJobsSent(); }
     catch (e) { setMsg(clean(e)); } finally { setSending(false); }
   };
   const save = async () => { setMore(false); const p = await api.wide.save(items, opts, name); if (p) setMsg(`Saved ${p}`); };
@@ -384,7 +400,20 @@ export default function WideFormat({ devices, onJobsSent, incoming }) {
             <label className="mini-field"><span>Media</span>
               <select value={media} onChange={(e) => setMedia(e.target.value)}>{(settings?.wideMedia || []).map((m) => <option key={m.name}>{m.name}</option>)}</select>
             </label>
-            <div className="help">{hasFolder ? `Goes to the "${media}" hot folder in Flexi.` : "Uses the printer's main Flexi hot folder (no hot folder set for this media — Devices → Settings)."}</div>
+            {direct ? (<>
+              <label className="mini-field"><span>HP media preset</span>
+                <select value={hpMediaId} onChange={(e) => { setHpMediaId(e.target.value); setHpModeKey(''); }}>
+                  {!hpMediaList.some((m) => m.value === hpMediaId) && <option value={hpMediaId}>{hpMediaList.length ? '—' : 'Loading…'}</option>}
+                  {hpMediaList.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
+                </select>
+              </label>
+              <label className="mini-field"><span>Print mode</span>
+                <select value={hpModeKey} onChange={(e) => setHpModeKey(e.target.value)}>
+                  {hpModes.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
+                </select>
+              </label>
+              <div className="help">Printed directly by InkSign — no Flexi needed. Load this media on the printer (same preset name on its front panel).</div>
+            </>) : <div className="help">{hasFolder ? `Goes to the "${media}" hot folder in Flexi.` : "Uses the printer's main Flexi hot folder (no hot folder set for this media — Devices → Settings)."}</div>}
             {rolls.length > 0 && (
               <label className="mini-field"><span>Take media off InkFlow roll</span>
                 <select value={rollId} onChange={(e) => { setRollId(e.target.value); const r = rolls.find((x) => x.id === e.target.value); if (r?.widthIn) setRollIn(Number(r.widthIn)); }}>
