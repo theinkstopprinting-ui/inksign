@@ -175,6 +175,7 @@ contextBridge.exposeInMainWorld('inksign', {
   },
   print: {
     printerState: (deviceId) => ipcRenderer.invoke('print:printerState', deviceId),
+    wake: (deviceId) => ipcRenderer.invoke('print:wake', deviceId),
     fieldOptions: (deviceId, key, patch) => ipcRenderer.invoke('print:fieldOptions', deviceId, key, patch),
     send: (deviceId, source, layout, job) => ipcRenderer.invoke('print:send', deviceId, source, layout, job),
   },

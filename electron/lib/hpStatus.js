@@ -114,17 +114,58 @@ const parseInk = (xml) => parseConsumables(xml).ink;
  * Everything the Print window shows about the printer. Media is required; status and ink are best-effort.
  * Returns { media: { ...loaded roll }, trays: [...], status, alerts, ink, at }
  */
-async function printerState(host, opts = {}) {
+// Waking the printer, the way Flexi does: its HP library (UniLib, CWebServices::wakePrinter) sends an
+// empty POST to /spc/UserAwaken on port 80. Asleep, the 335 answers its media page with HTTP 503.
+function wake(host, { port = 80, timeoutMs = 6000 } = {}) {
+  return new Promise((resolve, reject) => {
+    const req = http.request({ host, port, path: '/spc/UserAwaken', method: 'POST', timeout: timeoutMs,
+      headers: { 'Content-Type': 'text/xml;charset=UTF-8', 'Content-Length': 0, 'Accept-Language': 'en' } }, (res) => {
+      res.resume();
+      res.on('end', () => resolve(res.statusCode));
+    });
+    req.on('timeout', () => req.destroy(new Error(`The printer at ${host} didn't answer`)));
+    req.on('error', reject);
+    req.end();
+  });
+}
+const splitHost = (host, opts) => {
   const hp = String(host).match(/^\[?([^\]]+?)\]?:(\d+)$/);
-  if (hp && !opts.port) { host = hp[1]; opts = { ...opts, port: Number(hp[2]) }; }
-  const xml = await get(host, '/DevMgmt/MediaHandlingDyn.xml', opts);
+  return hp && !opts.port ? [hp[1], { ...opts, port: Number(hp[2]) }] : [host, opts];
+};
+const sleepMs = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/** Wake the printer and wait until it answers (up to waitMs). Returns { woke, ms }. */
+async function wakeAndWait(host, opts = {}) {
+  [host, opts] = splitHost(host, opts);
+  const t0 = Date.now(), waitMs = opts.waitMs ?? 90000, every = opts.pollMs ?? 3000;
+  await wake(host, opts);
+  let resent = Date.now();
+  for (;;) {
+    try { await get(host, '/DevMgmt/MediaHandlingDyn.xml', opts); return { woke: true, ms: Date.now() - t0 }; } catch (e) { if (e.status !== 503 && e.status !== 500) throw e; }
+    if (Date.now() - t0 > waitMs) throw new Error('The printer is still asleep — press a button on its front panel, then try again');
+    if (Date.now() - resent > 20000) { try { await wake(host, opts); } catch { /* keep waiting */ } resent = Date.now(); }
+    await sleepMs(every);
+  }
+}
+
+async function printerState(host, opts = {}) {
+  [host, opts] = splitHost(host, opts);
+  let xml, woke = false;
+  try { xml = await get(host, '/DevMgmt/MediaHandlingDyn.xml', opts); } catch (e) {
+    // asleep (power save): wake it like Flexi does, then ask again
+    if (e.status !== 503 || opts.noWake) throw e.status === 503 ? new Error('The printer is asleep (power save)') : e;
+    if (opts.onWaking) opts.onWaking();
+    await wakeAndWait(host, opts);
+    woke = true;
+    xml = await get(host, '/DevMgmt/MediaHandlingDyn.xml', opts);
+  }
   const trays = parseMediaHandling(xml);
   const loaded = trays.find((t) => t.widthMm) || trays[0] || null;
   let st = { status: '', statusText: '', alerts: [] };
   try { st = parseProductStatus(await get(host, '/DevMgmt/ProductStatusDyn.xml', opts)); } catch { /* older firmware */ }
   let cons = { ink: [], heads: [] };
   try { cons = parseConsumables(await get(host, '/DevMgmt/ConsumableConfigDyn.xml', opts)); } catch { /* optional */ }
-  return { media: loaded, trays, ...st, ink: cons.ink, heads: cons.heads, at: new Date().toISOString() };
+  return { media: loaded, trays, ...st, ink: cons.ink, heads: cons.heads, woke, at: new Date().toISOString() };
 }
 
-module.exports = { printerState, parseMediaHandling, parseProductStatus, parseConsumables, parseInk, get };
+module.exports = { printerState, wake, wakeAndWait, parseMediaHandling, parseProductStatus, parseConsumables, parseInk, get };

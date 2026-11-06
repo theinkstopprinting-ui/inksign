@@ -278,6 +278,11 @@ function registerIpc() {
     const match = st.media && st.media.mediaKey ? list.find((m) => String(m.id) === String(st.media.mediaKey)) : null;
     return { ...st, mediaMatch: match ? { id: match.id, name: match.name } : null };
   });
+  ipcMain.handle('print:wake', async (_e, deviceId) => {
+    const d = store.getDevice(deviceId);
+    if (!d || d.driver !== 'hp-latex' || !d.config.host) throw new Error('Only the HP Latex can be woken from here');
+    return require('./lib/hpStatus').wakeAndWait(d.config.host);
+  });
   ipcMain.handle('print:fieldOptions', (_e, deviceId, key, patch) => {
     const d = store.getDevice(deviceId);
     if (!d) return [];

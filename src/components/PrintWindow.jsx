@@ -108,7 +108,14 @@ export default function PrintWindow({ devices, jobs = [], source, previewPdfBase
       if (st.media && st.media.widthMm) setMedia((m) => ({ ...m, widthMm: st.media.widthMm, lengthMm: st.media.lengthMm || null, name: st.media.mediaType || 'Loaded roll' }));
       if (st.mediaMatch) setColor((c) => ({ ...c, mediaId: st.mediaMatch.id }));
       if (!st.media || !st.media.widthMm) setErr('The printer says no media is loaded.');
-    } catch (e) { setErr(e.message); } finally { setAsking(false); }
+      if (st.woke) setErr('');
+    } catch (e) { setErr(String(e.message).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')); } finally { setAsking(false); }
+  };
+  const wakeUp = async () => {
+    setErr(''); setAsking('wake');
+    try { await api.print.wake(dev.id); } catch (e) { setErr(String(e.message).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')); setAsking(false); return; }
+    setAsking(false);
+    askPrinter();
   };
   // ask as soon as an HP is picked, the way Flexi fills in the loaded roll
   useEffect(() => { if (isHp && dev.config.host) askPrinter(); }, [deviceId]);
@@ -151,8 +158,9 @@ export default function PrintWindow({ devices, jobs = [], source, previewPdfBase
               {printers.map((d) => <option key={d.id} value={d.id}>{d.name}{d.config?.host ? ` @ ${d.config.host}` : ''}</option>)}
             </select>
             <div className={`pw-status ${printer?.alerts?.some((a) => a.current && a.severity === 'Error') ? 'bad' : printer ? 'ok' : ''}`}>
-              {!dev ? 'Add a printer under Devices' : !isHp ? (isRoll ? 'Roll printer — type the media width' : 'Prints the page as laid out in the design') : asking ? 'Asking the printer…' : printer ? (printer.statusText || 'Connected') : 'Not asked yet'}
+              {!dev ? 'Add a printer under Devices' : !isHp ? (isRoll ? 'Roll printer — type the media width' : 'Prints the page as laid out in the design') : asking === 'wake' ? 'Waking the printer up…' : asking ? 'Asking the printer (wakes it up if it\'s asleep — can take a minute)…' : printer ? (printer.statusText || 'Connected') : 'Not asked yet'}
             </div>
+            {isHp && <button className="btn small" disabled={!!asking} onClick={wakeUp} title="Wake the printer from power save, like Flexi's Wake Up Printer">☀ Wake up printer</button>}
             {printer?.ink?.length > 0 && (
               <div className="pw-inkline" title="Ink left in each cartridge">
                 {printer.ink.map((k, i) => <span key={`${k.code}${i}`} className={k.percent != null && k.percent < 15 ? 'low' : ''}><i style={{ background: k.css }} />{k.code} {k.percent ?? '?'}%</span>)}

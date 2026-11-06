@@ -86,3 +86,26 @@ test('old printhead entries in the alert log are not shown as current errors (33
   assert.deepStrictEqual(st.alerts.filter((a) => a.current && a.severity === 'Error'), []);
   assert.ok(st.alerts.some((a) => !a.current && a.id === 'missingPrintHead'));
 });
+
+test('asleep (HTTP 503): wakes the printer like Flexi (POST /spc/UserAwaken) and asks again', async () => {
+  let awake = false, wakes = 0, wakeReq = null;
+  const srv = http.createServer((req, res) => {
+    if (req.url === '/spc/UserAwaken') {
+      wakes++; wakeReq = { method: req.method, len: req.headers['content-length'] };
+      setTimeout(() => { awake = true; }, 400); // takes a moment to come out of power save
+      res.writeHead(200); res.end(); return;
+    }
+    if (!awake) { res.writeHead(503); res.end('Service Unavailable'); return; }
+    const f = { '/DevMgmt/MediaHandlingDyn.xml': 'MediaHandlingDyn.xml', '/DevMgmt/ProductStatusDyn.xml': 'ProductStatusDyn-powersave.xml' }[req.url];
+    if (!f) { res.writeHead(404); res.end(); return; }
+    res.writeHead(200); res.end(fx(f));
+  });
+  await new Promise((r) => srv.listen(0, '127.0.0.1', r));
+  try {
+    const st = await H.printerState(`127.0.0.1:${srv.address().port}`, { pollMs: 100 });
+    assert.strictEqual(wakes, 1);
+    assert.deepStrictEqual(wakeReq, { method: 'POST', len: '0' });
+    assert.strictEqual(st.woke, true);
+    assert.strictEqual(st.media.widthMm, 1371);
+  } finally { srv.close(); }
+});
