@@ -542,7 +542,7 @@ export default function Design({ devices, jobs = [], active, onJobsSent }) {
       }
       if (e.key === 'Escape') {
         if (canvas.current?.hasPen()) return run(() => canvas.current.cancelPen());
-        return run(() => { setSel([]); setTool('select'); });
+        return run(() => { setSel([]); setTool('select'); setWelcome(false); });
       }
       if (e.key === 'Enter') {
         if (canvas.current?.hasPen()) return run(() => canvas.current.finishPen(false));
