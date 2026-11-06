@@ -6,6 +6,7 @@ import { rectangle, ellipse } from '../lib/shapes.js';
 import { imageToCmyk, printerProfile } from '../lib/color.js';
 import Preflight from './Preflight.jsx';
 import ProofButton from './ProofButton.jsx';
+import Icon from './shell/Icon.jsx';
 
 const api = window.inksign;
 const SHEETS = { Letter: [8.5, 11], Legal: [8.5, 14], Tabloid: [11, 17], '12 x 18': [12, 18], '13 x 19': [13, 19] };
@@ -437,10 +438,14 @@ export default function PrintCut({ devices, incoming, onDevicesChanged }) {
         </div>
 
         <Preflight purpose="printcut" items={items.map((it) => ({ name: it.name, ext: /image\/png/.test(it.dataUrl) ? 'png' : 'jpg', base64: it.dataUrl.split(',')[1], widthIn: it.widthIn }))} />
-        <button className="btn primary wide" disabled={!layout.placed.length || !printerId} onClick={doPrint}>1. Print on {printer?.name || 'printer'}</button>
-        {route === 'direct' && <button className="btn primary wide" disabled={!layout.placed.length || !cutterId} onClick={doCut}>2. Cut on {cutter?.name || 'cutter'}{nSeg > 1 ? ` (${nSeg} segments)` : ''}</button>}
-        <button className="btn wide" disabled={!layout.placed.length} onClick={doSave}>Save print PDF…</button>
-        <ProofButton order={order} disabled={!layout.placed.length} makeProof={async () => ({ kind: 'printcut', name: `${name || 'Stickers'} proof.pdf`, note: 'Sticker sheet with cut lines (magenta) from InkSign', payload: { job: await withColor(job()) } })} />
+        <div className="action-dock">
+          <button className="print-btn" disabled={!layout.placed.length || !printerId} onClick={doPrint}><Icon name="print" /> 1. Print on {printer?.name || 'printer'}</button>
+          {route === 'direct' && <button className="print-btn second" disabled={!layout.placed.length || !cutterId} onClick={doCut}><Icon name="cutter" /> 2. Cut on {cutter?.name || 'cutter'}{nSeg > 1 ? ` (${nSeg} segments)` : ''}</button>}
+          <div className="dock-more">
+            <button className="btn small" disabled={!layout.placed.length} onClick={doSave}>Save PDF…</button>
+            <ProofButton order={order} disabled={!layout.placed.length} makeProof={async () => ({ kind: 'printcut', name: `${name || 'Stickers'} proof.pdf`, note: 'Sticker sheet with cut lines (magenta) from InkSign', payload: { job: await withColor(job()) } })} />
+          </div>
+        </div>
         {msg && <div className="studio-msg">{msg}</div>}
 
         <div className="tool-box howto">

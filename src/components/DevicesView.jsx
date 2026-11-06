@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import DeviceEditor from './DeviceEditor.jsx';
 import CutterControl from './CutterControl.jsx';
 import MaintenancePanel from './MaintenancePanel.jsx';
+import FlexiCapture from './FlexiCapture.jsx';
 
 const api = window.inksign;
 
@@ -12,6 +13,7 @@ function StatusPill({ status }) {
 }
 
 export default function DevicesView({ catalog, devices, reload, jobs, onJobsSent, owner = true }) {
+  const [learning, setLearning] = useState(false);
   const [statuses, setStatuses] = useState({});
   const [editing, setEditing] = useState(null); // device object, or {} for new
   const [controlId, setControlId] = useState(null);
@@ -36,12 +38,11 @@ export default function DevicesView({ catalog, devices, reload, jobs, onJobsSent
           <p className="muted">Hook each machine up once, then send a test to make sure it answers.</p>
         </div>
         <div className="row">
+          <button className="btn" onClick={() => setLearning(true)}>Learn from Flexi…</button>
           <button className="btn" onClick={checkAll}>Refresh status</button>
           {owner && <button className="btn primary" onClick={() => setEditing({})}>+ Add device</button>}
         </div>
       </header>
-
-      <MaintenancePanel owner={owner} />
 
       {groups.map(([kind, title]) => {
         const list = devices.filter((d) => d.kind === kind);
@@ -84,6 +85,12 @@ export default function DevicesView({ catalog, devices, reload, jobs, onJobsSent
           </section>
         );
       })}
+
+      <details className="maint-wrap">
+        <summary>Maintenance — blades, cleaning, printheads</summary>
+        <MaintenancePanel owner={owner} />
+      </details>
+      {learning && <FlexiCapture devices={devices} onClose={() => setLearning(false)} />}
 
       {editing && (
         <DeviceEditor catalog={catalog} device={editing.id ? editing : null}

@@ -14,6 +14,7 @@ import MaterialsEditor from './MaterialsEditor.jsx';
 import CutterControl from './CutterControl.jsx';
 import ProofButton from './ProofButton.jsx';
 import QuoteDialog from './QuoteDialog.jsx';
+import Icon from './shell/Icon.jsx';
 import { stencilBridges, knockout, rhinestones, weedBoxes, STONES, boolean, weld } from '../lib/cuttools.js';
 import { simplify, nodeCount, envelope, ENVELOPES, dropShadow, TEMPLATES, stackLines } from '../lib/design.js';
 
@@ -1275,12 +1276,16 @@ export default function CutStudio({ devices, jobs = [], onJobsSent, incoming }) 
             ))}
           </div>
         )}
-        <button className="btn primary wide" disabled={!job || !device} onClick={send}>
-          Send to {device?.name || 'cutter'}{job && job.panels.length > 1 ? ` (${job.panels.length} jobs)` : ''}
-        </button>
-        <button className="btn wide" disabled={!job || !device} onClick={saveFile}>Save cut file (.plt)</button>
-        <ProofButton order={order} disabled={!job} makeProof={async () => ({ kind: 'png', name: `${jobName || 'Vinyl job'} proof.png`, note: 'Vinyl design proof from InkSign', payload: { dataUrl: renderProof() } })} />
-        <button className="btn wide" disabled={!job || !estimate} onClick={() => setQuoting(true)}>Create InkFlow quote…</button>
+        <div className="action-dock">
+          <button className="print-btn" disabled={!job || !device} onClick={send}>
+            <Icon name="cutter" /> Cut on {device?.name || 'cutter'}{job && job.panels.length > 1 ? ` (${job.panels.length} jobs)` : ''}
+          </button>
+          <div className="dock-more">
+            <button className="btn small" disabled={!job || !device} onClick={saveFile}>Save .plt</button>
+            <ProofButton order={order} disabled={!job} makeProof={async () => ({ kind: 'png', name: `${jobName || 'Vinyl job'} proof.png`, note: 'Vinyl design proof from InkSign', payload: { dataUrl: renderProof() } })} />
+            <button className="btn small" disabled={!job || !estimate} onClick={() => setQuoting(true)}>Quote…</button>
+          </div>
+        </div>
         {quoting && job && <QuoteDialog lines={quoteLines()} defaultName={jobName} onClose={() => setQuoting(false)}
           makeProof={async () => ({ kind: 'png', name: `${jobName || 'Vinyl job'} proof.png`, note: 'Vinyl design proof from InkSign', payload: { dataUrl: renderProof() } })} />}
         {msg && <div className="studio-msg">{msg}</div>}

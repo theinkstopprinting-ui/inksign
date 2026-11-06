@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
 const path = require('path');
 const store = require('./store');
 const queue = require('./queue');
@@ -11,6 +11,7 @@ const watchFolders = require('./watchFolders');
 const updates = require('./updates');
 const shop = require('./shop');
 const printSrv = require('./server');
+const capture = require('./capture');
 const { generate } = require('./lib/cutterLang');
 const { buildPrintCutPdf, toMarkOrigin, markDistances } = require('./lib/printCutPdf');
 const { impose } = require('./lib/impose');
@@ -355,6 +356,18 @@ function registerIpc() {
     fs.writeFileSync(file, r.pdf);
     return queue.add({ deviceId, action: 'file', filePath: file, name: job.name, copies: job.copies, options: job.options, hold: job.hold, inkflow: job.inkflow });
   });
+  // Learn from Flexi: capture what Flexi sends a machine
+  capture.init({ dataDir: app.getPath('userData'), notify: (r) => { if (win && !win.isDestroyed()) win.webContents.send('capture:event', r); } });
+  ipcMain.handle('capture:state', () => capture.state());
+  ipcMain.handle('capture:listen', (_e, o) => capture.listen(o));
+  ipcMain.handle('capture:stop', () => capture.stop());
+  ipcMain.handle('capture:kit', async () => { const r = await capture.kit(); shell.openPath(r.folder); return r; });
+  ipcMain.handle('capture:openFolder', () => shell.openPath(capture.state().folder));
+  ipcMain.handle('capture:import', async (_e, machine) => {
+    const r = await dialog.showOpenDialog(win, { title: `Pick the file Flexi saved for ${machine}`, properties: ['openFile'] });
+    if (r.canceled) return null;
+    return capture.importFile(machine, r.filePaths[0]);
+  });
   // Press page -> InkSign Print Server: the server imposes, applies paper / finishing / color and prints
   ipcMain.handle('press:toServer', async (_e, src, props, job) => {
     const { loadSource } = require('./lib/impose');
@@ -520,4 +533,4 @@ if (!smoke && !app.requestSingleInstanceLock()) {
 }
 
 app.on('window-all-closed', () => app.quit());
-app.on('before-quit', () => { try { printSrv.stopServer(); } catch { /* already stopped */ } });
+app.on('before-quit', () => { try { printSrv.stopServer(); capture.stop(); } catch { /* already stopped */ } });

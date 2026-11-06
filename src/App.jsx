@@ -15,29 +15,46 @@ import TimerWidget from './components/TimerWidget.jsx';
 import HistoryPage from './components/HistoryPage.jsx';
 import InventoryPage from './components/InventoryPage.jsx';
 import JobCenter from './components/server/JobCenter.jsx';
+import Home from './components/Home.jsx';
+import Icon from './components/shell/Icon.jsx';
 
 const api = window.inksign;
 
+// Menu, grouped by what you're doing. [id, label, icon, what it's for]
 const NAV = [
-  ['orders', 'Orders'],
-  ['studio', 'Cut Studio'],
-  ['printcut', 'Print & Cut'],
-  ['wide', 'Wide Format (HP)'],
-  ['press', 'Press (Xerox)'],
-  ['server', 'Xerox Server'],
-  ['mockup', 'Mockup'],
-  ['color', 'Color'],
-  ['devices', 'Devices'],
-  ['queue', 'Job queue'],
-  ['history', 'History'],
-  ['inventory', 'Rolls & stock'],
-  ['usage', 'Usage'],
-  ['settings', 'Settings'],
+  { items: [['home', 'Home', 'home', 'Start here — pick what you are making']] },
+  { title: 'Make', items: [
+    ['studio', 'Vinyl (Cut Studio)', 'vinyl', 'Cut lettering, logos and decals'],
+    ['printcut', 'Print & Cut', 'sticker', 'Stickers and labels: print, then contour-cut'],
+    ['wide', 'Wide Format (HP)', 'banner', 'Banners, signs and canvas on the HP Latex'],
+    ['press', 'Press (Xerox)', 'press', 'Cards, flyers and booklets on the Xerox'],
+  ] },
+  { title: 'Run', items: [
+    ['server', 'Xerox Server', 'server', 'Held, printing and printed Xerox jobs'],
+    ['queue', 'Job queue', 'queue', 'Cutter and HP jobs waiting or sending'],
+    ['history', 'History', 'history', 'Finished jobs — reprint from here'],
+  ] },
+  { title: 'Shop', items: [
+    ['orders', 'Orders', 'orders', 'InkFlow orders and artwork'],
+    ['inventory', 'Rolls & stock', 'stock', 'Vinyl and media rolls'],
+    ['mockup', 'Mockup', 'mockup', 'Show the customer how it will look'],
+    ['usage', 'Usage & costs', 'usage', 'Media, ink and time per job'],
+  ] },
+  { title: 'Set up', items: [
+    ['devices', 'Devices', 'devices', 'Cutters and printers'],
+    ['color', 'Color', 'color', 'ICC profiles and colors'],
+    ['settings', 'Settings', 'settings', 'Shop, InkFlow, users, updates'],
+  ] },
 ];
+const LABEL = Object.fromEntries(NAV.flatMap((g) => g.items.map(([id, label, , help]) => [id, { label, help }])));
 const FULL = ['studio', 'printcut', 'press', 'wide', 'mockup'];
+const NARROW_KEY = 'inksign.navNarrow';
 
 export default function App() {
-  const [tab, setTab] = useState('studio');
+  const [tab, setTab] = useState('home');
+  const [statuses, setStatuses] = useState({});
+  const [narrow, setNarrow] = useState(() => { try { return window.localStorage.getItem(NARROW_KEY) === '1'; } catch { return false; } });
+  const toggleNarrow = () => setNarrow((n) => { try { window.localStorage.setItem(NARROW_KEY, n ? '0' : '1'); } catch { /* not saved */ } return !n; });
   const [catalog, setCatalog] = useState(null);
   const [devices, setDevices] = useState([]);
   const [jobs, setJobs] = useState([]);
@@ -81,6 +98,16 @@ export default function App() {
     return () => { offJobs(); offNotice(); offOpen(); offUpd(); offDev(); offReload(); };
   }, [reloadDevices, notice, loadUsers]);
 
+  // Machine status for the top bar and Home (every minute)
+  useEffect(() => {
+    if (!devices.length) return undefined;
+    let live = true;
+    const check = () => devices.forEach((d) => api.devices.status(d.id).then((st) => { if (live) setStatuses((x) => ({ ...x, [d.id]: st })); }).catch(() => {}));
+    check();
+    const t = setInterval(check, 60000);
+    return () => { live = false; clearInterval(t); };
+  }, [devices.map((d) => `${d.id}:${JSON.stringify(d.config || {})}`).join('|')]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const reloadJobs = async () => setJobs(await api.jobs.list());
   const active = jobs.filter((j) => j.status === 'queued' || j.status === 'sending' || j.status === 'held').length;
 
@@ -97,32 +124,56 @@ export default function App() {
 
   return (
     <div className="app">
-      <aside className="sidebar">
-        <div className="brand"><span className="logo">◆</span> InkSign<small>v{update?.version || ''}</small></div>
+      <aside className={`sidebar ${narrow ? 'narrow' : ''}`}>
+        <div className="brand">
+          <span className="logo">◆</span><span className="brand-name">InkSign</span>
+          <button className="nav-toggle" title={narrow ? 'Show menu names' : 'Make the menu narrow'} onClick={toggleNarrow}>{narrow ? '»' : '«'}</button>
+        </div>
         <nav>
-          {NAV.map(([id, label]) => (
-            <button key={id} className={tab === id ? 'active' : ''} onClick={() => setTab(id)}>
-              {label}
-              {id === 'queue' && active > 0 && <span className="badge">{active}</span>}
-            </button>
+          {NAV.map((g, gi) => (
+            <div key={gi} className="nav-group">
+              {g.title && <div className="nav-title">{g.title}</div>}
+              {g.items.map(([id, label, icon, help]) => (
+                <button key={id} className={tab === id ? 'active' : ''} onClick={() => setTab(id)} title={narrow ? `${label} — ${help}` : help}>
+                  <Icon name={icon} />
+                  <span className="nav-label">{label}</span>
+                  {id === 'queue' && active > 0 && <span className="badge">{active}</span>}
+                </button>
+              ))}
+            </div>
           ))}
         </nav>
         <TimerWidget notice={notice} />
         <div className="sidebar-foot">
           {userState.current && (
             <div className="row small" style={{ justifyContent: 'space-between', marginBottom: 6 }}>
-              <span>{userState.current.name}{owner ? '' : ' (staff)'}</span>
+              <span className="nav-label">{userState.current.name}{owner ? '' : ' (staff)'}</span>
               {userState.required && <button className="btn ghost small" onClick={signOut}>Sign out</button>}
             </div>
           )}
           {update && (update.status === 'available' || update.status === 'ready' || update.status === 'downloading') ? (
             <button className="update-pill" onClick={() => setTab('settings')}>{update.message}</button>
           ) : (
-            <div className="muted small">The Ink Stop</div>
+            <div className="muted small nav-label">The Ink Stop · v{update?.version || ''}</div>
           )}
         </div>
       </aside>
+      <div className="main-col">
+        <header className="topbar">
+          <div className="topbar-title"><b>{LABEL[tab]?.label}</b><span className="muted">{LABEL[tab]?.help}</span></div>
+          <div className="topbar-machines">
+            {devices.map((d) => {
+              const st = statuses[d.id];
+              return (
+                <button key={d.id} className={`mchip sd-${st ? st.state : 'wait'}`} title={`${d.name}: ${st?.message || 'checking…'}`} onClick={() => setTab('devices')}>
+                  <i />{d.name}
+                </button>
+              );
+            })}
+          </div>
+        </header>
       <main key={reloadKey} className={`content ${FULL.includes(tab) ? 'content-full' : ''}`}>
+        {tab === 'home' && <Home devices={devices} statuses={statuses} jobs={jobs} userName={userState.current?.name} go={setTab} />}
         {/* The four tools stay mounted so work isn't lost when you switch pages */}
         <div style={{ display: tab === 'studio' ? 'contents' : 'none' }}><CutStudio devices={devices} jobs={jobs} incoming={incoming} onJobsSent={() => setTab('queue')} /></div>
         <div style={{ display: tab === 'printcut' ? 'contents' : 'none' }}><PrintCut devices={devices} incoming={incoming} onDevicesChanged={reloadDevices} /></div>
@@ -143,6 +194,7 @@ export default function App() {
         {tab === 'settings' && (owner ? <Settings devices={devices} onUsersChanged={loadUsers} />
           : <div className="card"><h2 className="card-title">Settings</h2><p className="muted">Only an owner can change settings. Sign out and sign in as an owner.</p></div>)}
       </main>
+      </div>
       <div className="toasts">
         {notices.map((n) => (
           <div key={n.id} className="toast" onClick={() => setNotices((x) => x.filter((y) => y.id !== n.id))}>{n.text}</div>

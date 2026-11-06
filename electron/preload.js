@@ -137,6 +137,16 @@ contextBridge.exposeInMainWorld('inksign', {
     firewall: () => ipcRenderer.invoke('srv:firewall'),
     onChange: (cb) => { const h = (_e, j) => cb(j); ipcRenderer.on('srv:changed', h); return () => ipcRenderer.removeListener('srv:changed', h); },
   },
+  // Learn from Flexi (capture what Flexi sends a machine)
+  capture: {
+    state: () => ipcRenderer.invoke('capture:state'),
+    listen: (o) => ipcRenderer.invoke('capture:listen', o),
+    stop: () => ipcRenderer.invoke('capture:stop'),
+    kit: () => ipcRenderer.invoke('capture:kit'),
+    openFolder: () => ipcRenderer.invoke('capture:openFolder'),
+    importFile: (machine) => ipcRenderer.invoke('capture:import', machine),
+    onEvent: (cb) => { const h = (_e, r) => cb(r); ipcRenderer.on('capture:event', h); return () => ipcRenderer.removeListener('capture:event', h); },
+  },
   // Xerox profile maker (InkRIP's system) + the Nix Mini on USB
   profiling: {
     patches: (kind, n) => ipcRenderer.invoke('prof:patches', kind, n),

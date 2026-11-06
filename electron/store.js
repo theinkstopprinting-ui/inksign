@@ -39,6 +39,14 @@ function init(userDataDir) {
   }
   // Xerox set up before the print server: tell InkSign which printer description (PPD) it uses
   let migrated = false;
+  // 1.3: the shop's Mutoh Kona cutter, added once to existing setups
+  if (!devices.some((d) => d.presetId === 'mutoh-kona-1400') && !readJson('settings.json', {}).konaAdded) {
+    const i = devices.findIndex((d) => d.kind !== 'cutter');
+    devices.splice(i < 0 ? devices.length : i, 0, deviceFromPreset('mutoh-kona-1400', 'Mutoh Kona 1400'));
+    migrated = true;
+    const st = readJson('settings.json', {});
+    writeJson('settings.json', { ...st, konaAdded: true });
+  }
   for (const d of devices) {
     if (d.presetId === 'xerox-7845' && !d.config?.model) { d.config = { ...d.config, model: 'xerox-7845' }; migrated = true; }
   }

@@ -4,6 +4,9 @@ const list = [
     config: { connection: 'printer', language: 'hpgl', unitsPerMm: 40, mediaWidthIn: 24 } },
   { id: 'uscutter-titan3-68', name: 'US Cutter Titan 3 (68")', maker: 'US Cutter', kind: 'cutter', driver: 'cutter',
     config: { connection: 'printer', language: 'hpgl', unitsPerMm: 40, mediaWidthIn: 64 } },
+  // Mutoh Kona 1400: HP-GL over USB (shows as a Windows printer with Mutoh's driver) or serial; 1400 mm max media
+  { id: 'mutoh-kona-1400', name: 'Mutoh Kona 1400', maker: 'Mutoh', kind: 'cutter', driver: 'cutter',
+    config: { connection: 'printer', language: 'hpgl', unitsPerMm: 40, mediaWidthIn: 53 } },
   { id: 'generic-hpgl-cutter', name: 'Other HP-GL cutter', maker: 'Generic', kind: 'cutter', driver: 'cutter',
     config: { language: 'hpgl' } },
   { id: 'generic-gpgl-cutter', name: 'Other Graphtec GP-GL cutter', maker: 'Graphtec', kind: 'cutter', driver: 'cutter',
@@ -24,6 +27,7 @@ const list = [
 const shopDefaults = [
   { name: 'Graphtec CE6000-60 Plus', presetId: 'graphtec-ce6000-60plus' },
   { name: 'Titan 3 68"', presetId: 'uscutter-titan3-68' },
+  { name: 'Mutoh Kona 1400', presetId: 'mutoh-kona-1400' },
   { name: 'HP Latex 335', presetId: 'hp-latex-335' },
   { name: 'HP Latex 115', presetId: 'hp-latex-115' },
   { name: 'Xerox 7845', presetId: 'xerox-7845' },

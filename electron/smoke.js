@@ -40,7 +40,7 @@ function start(outFile) {
   });
   // Fake Xerox: records every job it receives
   const received = [];
-  const fake = net.createServer((sock) => { const chunks = []; sock.on('data', (d) => chunks.push(d)); sock.on('end', () => received.push(Buffer.concat(chunks))); sock.on('error', () => {}); });
+  const fake = net.createServer((sock) => { const chunks = []; sock.on('data', (d) => chunks.push(d)); sock.on('end', () => { const b = Buffer.concat(chunks); if (b.length) received.push(b); }); sock.on('error', () => {}); }); // status checks connect and close without data — not jobs
   const ports = {};
   const ready = (async () => {
     ports.xerox = await freePort();

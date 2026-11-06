@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { imageToCmyk, printerProfile } from '../lib/color.js';
 import Preflight from './Preflight.jsx';
 import ProofButton from './ProofButton.jsx';
+import Icon from './shell/Icon.jsx';
 import { parseCsv } from '../lib/csv.js';
 import { renderPages, b64ToBytes } from '../lib/pdfRender.js';
 
@@ -373,9 +374,13 @@ export default function Press({ devices, onJobsSent, incoming, onServerSent }) {
         {colorProf && src && src.ext !== 'pdf' && <div className="help">Color: converted to CMYK with {colorProf.profile.name}.</div>}
         {src && <Preflight purpose="press" bleedIn={Number(bleedIn) || 0} items={[{ name: src.name, ext: src.ext, base64: src.base64, widthIn: mode === 'repeat' ? Number(imgW) : null, heightIn: mode === 'repeat' ? Number(imgH) : null }]} />}
         {server && problems.length > 0 && <div className="jp-problems">{problems.map((x, i) => <div key={i}>⚠ {x}</div>)}</div>}
-        <button className="btn primary wide" disabled={!info || (server ? !paperId : !printerId)} onClick={send}>{server ? (hold ? 'Send to Xerox Server (held)' : 'Print through Xerox Server') : hold ? 'Send to queue (held)' : `Print on ${printer?.name || 'printer'}`}</button>
-        <button className="btn wide" disabled={!info} onClick={save}>Save imposed PDF…</button>
-        <ProofButton order={order} disabled={!info} makeProof={async () => ({ kind: 'press', name: `${name || 'Press job'} proof.pdf`, note: 'Imposed print sheet from InkSign', payload: { src: await withColor(source), opts } })} />
+        <div className="action-dock">
+          <button className="print-btn" disabled={!info || (server ? !paperId : !printerId)} onClick={send}><Icon name="print" /> {server ? (hold ? 'Send to Xerox Server (held)' : 'Print on the Xerox') : hold ? 'Send to queue (held)' : `Print on ${printer?.name || 'printer'}`}</button>
+          <div className="dock-more">
+            <button className="btn small" disabled={!info} onClick={save}>Save PDF…</button>
+            <ProofButton order={order} disabled={!info} makeProof={async () => ({ kind: 'press', name: `${name || 'Press job'} proof.pdf`, note: 'Imposed print sheet from InkSign', payload: { src: await withColor(source), opts } })} />
+          </div>
+        </div>
         {msg && <div className="studio-msg">{msg}</div>}
         <div className="help">{server ? 'The server sends the Xerox its own driver commands for this paper (size, type, tray), 2-sided, staple, booklet fold and punch. Change anything later in Xerox Server → Properties.' : 'Sent with a plain PJL header. Turn on the Xerox Server (Xerox Server → Setup) for paper catalog, finishing and exact tray control.'}</div>
       </div>

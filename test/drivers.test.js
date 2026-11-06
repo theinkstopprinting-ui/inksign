@@ -94,12 +94,12 @@ test('every preset points at a real driver and catalog is plain data', () => {
   assert.doesNotThrow(() => structuredClone(c));
 });
 
-test('store seeds the five shop machines; queue runs a job', async () => {
+test('store seeds the six shop machines; queue runs a job', async () => {
   const store = require('../electron/store');
   const queue = require('../electron/queue');
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ud-'));
   store.init(dir);
-  assert.deepStrictEqual(store.getDevices().map((d) => d.name), ['Graphtec CE6000-60 Plus', 'Titan 3 68"', 'HP Latex 335', 'HP Latex 115', 'Xerox 7845']);
+  assert.deepStrictEqual(store.getDevices().map((d) => d.name), ['Graphtec CE6000-60 Plus', 'Titan 3 68"', 'Mutoh Kona 1400', 'HP Latex 335', 'HP Latex 115', 'Xerox 7845']);
   const { srv, port } = await fakeServer();
   const x = store.getDevices().find((d) => d.presetId === 'xerox-7845');
   store.saveDevice({ id: x.id, name: x.name, config: { host: '127.0.0.1', port } });

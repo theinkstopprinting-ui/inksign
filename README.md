@@ -1,4 +1,4 @@
-# InkSign — v1.2
+# InkSign — v1.3
 
 Sign-shop RIP & cut program for The Ink Stop: vinyl cutting (Graphtec CE6000-60 Plus, US Cutter Titan 3),
 print & cut, HP Latex 335 / 115 jobs through Flexi 22, and Xerox 7845 imposition — working from InkFlow orders.
@@ -23,6 +23,18 @@ It adds InkSign to the desktop and Start menu. Installing a newer version over a
 | **Rolls & stock** | Your InkFlow sign rolls and feet left; low rolls flagged for reorder. |
 | **Usage** | Media and ink per job, by printer and media, plus labor timers; CSV export. |
 | **Settings** | InkFlow link, watch folders, people & PINs, phone view, shared setup between PCs, updates. |
+
+## New in 1.3 — easier to use
+- **Home** screen: "What are we making?" (vinyl, stickers, banners/signs, cards/flyers), every machine online/offline, what's waiting, what just finished.
+- **Grouped menu** with icons (Make / Run / Shop / Set up) — « makes it narrow. Machine status chips across the top on every page.
+- **Wide Format, Flexi-style**: toolbar (add, duplicate, turn, remove, nest, zoom), printer / media / roll right in the toolbar,
+  the roll drawn to scale with inch rulers (scroll to zoom, drag to move), job list with thumbnails, drag files in from Explorer,
+  one-click finishing (trim / hemmed banner / canvas wrap), cost and suggested price along the bottom, **Print** always top-right.
+- Cut Studio, Print & Cut and Press keep their **Cut / Print** button docked at the bottom of the right panel.
+- **Devices**: machines first; maintenance folded underneath. **Mutoh Kona 1400** added (HP-GL, 53" cut width).
+- **Learn from Flexi** (Devices): records exactly what Flexi sends the HP Latex 335/115 or a cutter (InkSign listens like
+  the machine, or picks up Flexi's "File" output) and saves it in *Downloads\InkSign captures* — used to make InkSign send
+  the same commands. Includes test files (HP print test, cutter test, print & cut test).
 
 ## Xerox Server — Fiery-style print server for the WorkCentre 7845 (new in 1.1)
 Works like Fiery Command WorkStation. One PC (the one by the Xerox) **is** the server; InkSign on every other shop PC connects to it and sees the same jobs.
@@ -179,7 +191,7 @@ Optional: Settings → Updates → *Fully automatic* takes a web folder with `la
 - Xerox tray / paper type / duplex commands — check the first job comes from the right tray.
 
 ## Build from source
-`npm install` · `npm start` (run) · `npm test` (78 tests) · `npm run dist` (Windows installer; on Linux needs Wine).
+`npm install` · `npm start` (run) · `npm test` (80 tests) · `npm run dist` (Windows installer; on Linux needs Wine).
 Ghostscript is `@jspawn/ghostscript-wasm` (Ghostscript 9.56, AGPL). Xerox PPD driver files: `electron/printers/xerox-7845-ppd-driver/`.
 Profile engine and Nix code in `electron/color/` are ported from InkRIP (`server/iccengine.js`, `profilemaker.js`, `nixchart.js`, `nixdevice.js`) — keep them in step.
 New cutter/printer models: one line in `electron/drivers/presets.js`; new kinds of machine: a driver in `electron/drivers/`.
