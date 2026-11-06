@@ -165,6 +165,12 @@ contextBridge.exposeInMainWorld('inksign', {
     saveLicense: (text) => ipcRenderer.invoke('nix:saveLicense', text),
     pickBridge: () => ipcRenderer.invoke('nix:pickBridge'),
   },
+  design: {
+    openArt: (multi) => ipcRenderer.invoke('design:openArt', multi),
+    exportFile: (format, scene, name, text) => ipcRenderer.invoke('design:export', format, scene, name, text),
+    print: (deviceId, scene, job) => ipcRenderer.invoke('design:print', deviceId, scene, job),
+    pdfBytes: (scene, cut) => ipcRenderer.invoke('design:pdfBytes', scene, cut),
+  },
   files: {
     saveJob: (name, data) => ipcRenderer.invoke('files:saveJob', name, data),
     savePng: (name, dataUrl) => ipcRenderer.invoke('files:savePng', name, dataUrl),

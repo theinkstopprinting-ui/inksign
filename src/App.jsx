@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import DevicesView from './components/DevicesView.jsx';
 import QueueView from './components/QueueView.jsx';
 import CutStudio from './components/CutStudio.jsx';
+import Design from './components/design/Design.jsx';
 import PrintCut from './components/PrintCut.jsx';
 import Press from './components/Press.jsx';
 import WideFormat from './components/WideFormat.jsx';
@@ -24,6 +25,7 @@ const api = window.inksign;
 const NAV = [
   { items: [['home', 'Home', 'home', 'Start here — pick what you are making']] },
   { title: 'Make', items: [
+    ['design', 'Design', 'design', 'Lay out and design signs like in Flexi — open PDF, AI, EPS'],
     ['studio', 'Vinyl (Cut Studio)', 'vinyl', 'Cut lettering, logos and decals'],
     ['printcut', 'Print & Cut', 'sticker', 'Stickers and labels: print, then contour-cut'],
     ['wide', 'Wide Format (HP)', 'banner', 'Banners, signs and canvas on the HP Latex'],
@@ -47,7 +49,7 @@ const NAV = [
   ] },
 ];
 const LABEL = Object.fromEntries(NAV.flatMap((g) => g.items.map(([id, label, , help]) => [id, { label, help }])));
-const FULL = ['studio', 'printcut', 'press', 'wide', 'mockup'];
+const FULL = ['design', 'studio', 'printcut', 'press', 'wide', 'mockup'];
 const NARROW_KEY = 'inksign.navNarrow';
 
 export default function App() {
@@ -175,6 +177,7 @@ export default function App() {
       <main key={reloadKey} className={`content ${FULL.includes(tab) ? 'content-full' : ''}`}>
         {tab === 'home' && <Home devices={devices} statuses={statuses} jobs={jobs} userName={userState.current?.name} go={setTab} />}
         {/* The four tools stay mounted so work isn't lost when you switch pages */}
+        <div style={{ display: tab === 'design' ? 'contents' : 'none' }}><Design devices={devices} active={tab === 'design'} onJobsSent={() => {}} /></div>
         <div style={{ display: tab === 'studio' ? 'contents' : 'none' }}><CutStudio devices={devices} jobs={jobs} incoming={incoming} onJobsSent={() => setTab('queue')} /></div>
         <div style={{ display: tab === 'printcut' ? 'contents' : 'none' }}><PrintCut devices={devices} incoming={incoming} onDevicesChanged={reloadDevices} /></div>
         <div style={{ display: tab === 'wide' ? 'contents' : 'none' }}><WideFormat devices={devices} incoming={incoming} onJobsSent={() => setTab('queue')} /></div>

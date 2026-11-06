@@ -45,7 +45,7 @@ export function weld(paths) {
 }
 
 // Groups outer outlines with the holes inside them (so "O" stays one shape).
-function groupShapes(closed) {
+export function groupShapes(closed) {
   const items = closed.map((p) => ({ p, b: bounds([p]), area: Math.abs(area(p)) })).sort((a, b) => b.area - a.area);
   const groups = [];
   for (const it of items) {

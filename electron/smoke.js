@@ -187,6 +187,21 @@ function start(outFile) {
         check('HP media presets load', media.length > 40, `${media.length} media`);
       }
 
+      // 6c) Design workspace (1.5): EPS opens editable, and a design PDF carries CutContour
+      {
+        const gsm = require('./lib/ghostscript');
+        const { prepareArt } = require('./lib/artPrep');
+        const { buildDesignPdf } = require('./lib/designPdf');
+        const eps = Buffer.from('%!PS-Adobe-3.0 EPSF-3.0\n%%BoundingBox: 0 0 200 100\n/Helvetica findfont 40 scalefont setfont 1 0 0 setrgbcolor 10 30 moveto (SALE) show\n[/Separation /CutContour /DeviceCMYK {dup 0 exch 0 0}] setcolorspace 1 setcolor 2 2 moveto 198 2 lineto 198 98 lineto 2 98 lineto closepath stroke\nshowpage\n');
+        let prep = null, perr = null;
+        try { prep = await prepareArt(eps, 'eps', gsm); } catch (e) { perr = e; }
+        const txt = prep ? prep.pdf.toString('latin1') : '';
+        check('Design: EPS opens with text as shapes and the cut line found', !perr && prep.notes.includes('cut lines found') && !/\/Font\b/.test(txt), perr ? perr.message : prep.notes.join(', '));
+        const sq = [{ x: 10, y: 10 }, { x: 60, y: 10 }, { x: 60, y: 40 }, { x: 10, y: 40 }, { x: 10, y: 10 }];
+        const dp = await buildDesignPdf({ w: 100, h: 60, items: [{ kind: 'path', paths: [sq], fill: '#ff0000' }, { kind: 'path', paths: [sq], cut: true }] });
+        check('Design: PDF written with a CutContour cut line', dp.cutCount === 1 && dp.pdf.toString('latin1').includes('/CutContour'));
+      }
+
       // 7) The app window and pages render
       const win = getWin();
       if (win.webContents.isLoading()) await new Promise((r) => win.webContents.once('did-finish-load', r));
@@ -219,15 +234,19 @@ function start(outFile) {
           const pm = [...document.querySelectorAll('button')].find((b) => b.textContent === 'Profile maker');
           if (pm) { pm.click(); await wait(1200); out.__pmSteps = document.querySelectorAll('.pm-steps > section').length; }
         }
+        const dz = [...document.querySelectorAll('.sidebar nav button')].find((b) => /^Design/.test(b.textContent.trim()));
+        if (dz) { dz.click(); await wait(800); out.__design = document.querySelectorAll('.dz-menu-btn').length; }
         return out;
       })()`);
       const rows = pages.__jobRows; const propTabs = pages.__propTabs; const catalogN = pages.__catalog;
+      const dzMenus = pages.__design; delete pages.__design;
       const pmSteps = pages.__pmSteps; delete pages.__jobRows; delete pages.__propTabs; delete pages.__catalog; delete pages.__pmSteps;
       check('Every page opens', Object.keys(pages).length >= 10 && Object.values(pages).every(Boolean), Object.keys(pages).join(', '));
       check('Xerox Server page lists the jobs', rows >= 4, `${rows} rows`);
       check('Job Properties opens with all its tabs', propTabs === 6, `${propTabs} tabs`);
       check('Paper catalog opens', catalogN >= 8, `${catalogN} papers`);
       check('Profile maker opens with its 4 steps', pmSteps === 4, `${pmSteps} steps`);
+      check('Design workspace opens with its menus', dzMenus === 6, `${dzMenus} menus`);
       check('No errors in the app window', !results.consoleErrors?.length, results.consoleErrors);
       fake.close();
       printSrv.stopServer();

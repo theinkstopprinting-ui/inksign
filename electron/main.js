@@ -207,6 +207,70 @@ function registerIpc() {
       return { name, ext, base64: buf.toString('base64') };
     });
   });
+  // ---- Design workspace ----
+  // Open artwork to edit: PDF / AI / EPS come back as a PDF with text outlined and CutContour marked
+  ipcMain.handle('design:openArt', async (_e, multi = true) => {
+    const r = await dialog.showOpenDialog(win, {
+      title: 'Import artwork', properties: multi ? ['openFile', 'multiSelections'] : ['openFile'],
+      filters: [{ name: 'Artwork', extensions: ['pdf', 'ai', 'eps', 'svg', 'dxf', 'png', 'jpg', 'jpeg'] }, { name: 'All files', extensions: ['*'] }],
+    });
+    if (r.canceled) return [];
+    const { prepareArt } = require('./lib/artPrep');
+    const gs = require('./lib/ghostscript');
+    const out = [];
+    for (const f of r.filePaths) {
+      const ext = path.extname(f).toLowerCase().slice(1);
+      const name = path.basename(f, path.extname(f));
+      const buf = fs.readFileSync(f);
+      try {
+        if (ext === 'svg' || ext === 'dxf') out.push({ name, ext, text: buf.toString('utf8') });
+        else if (ext === 'png' || ext === 'jpg' || ext === 'jpeg') out.push({ name, ext, dataUrl: `data:image/${ext === 'png' ? 'png' : 'jpeg'};base64,${buf.toString('base64')}` });
+        else {
+          const prep = await prepareArt(buf, ext, gs);
+          out.push({ name, ext, base64: prep.pdf.toString('base64'), notes: prep.notes });
+        }
+      } catch (e) { out.push({ name, ext, error: e.message }); }
+    }
+    return out;
+  });
+  const designDir = () => { const d = path.join(app.getPath('userData'), 'designjobs'); fs.mkdirSync(d, { recursive: true }); return d; };
+  const safeName = (s) => String(s || 'design').replace(/[\\/:*?"<>|]+/g, '-').slice(0, 60);
+  ipcMain.handle('design:export', async (_e, format, scene, name, text) => {
+    const filters = { pdf: [{ name: 'PDF', extensions: ['pdf'] }], eps: [{ name: 'EPS', extensions: ['eps'] }], svg: [{ name: 'SVG', extensions: ['svg'] }] }[format];
+    if (!filters) throw new Error('Unknown format');
+    const r = await dialog.showSaveDialog(win, { title: `Export ${format.toUpperCase()}`, defaultPath: `${safeName(name)}.${format}`, filters });
+    if (r.canceled || !r.filePath) return null;
+    if (format === 'svg') { fs.writeFileSync(r.filePath, String(text)); return r.filePath; }
+    const { buildDesignPdf } = require('./lib/designPdf');
+    const { pdf } = await buildDesignPdf(scene, { cut: 'spot', title: name });
+    if (format === 'pdf') { fs.writeFileSync(r.filePath, pdf); return r.filePath; }
+    const gs = require('./lib/ghostscript');
+    const g = await gs.run(['-sDEVICE=eps2write', '-dNoOutputFonts', '-sOutputFile=/out/art.eps', '/in/art.pdf'], { files: { '/in/art.pdf': pdf }, outputs: ['/out/art.eps'] });
+    if (g.code !== 0 || !g.out['/out/art.eps']) throw new Error('Could not write the EPS file');
+    fs.writeFileSync(r.filePath, g.out['/out/art.eps']);
+    return r.filePath;
+  });
+  // RIP and print the design: builds the PDF and queues it on the printer (HP Latex, Xerox, …)
+  ipcMain.handle('design:print', async (_e, deviceId, scene, job = {}) => {
+    const d = store.getDevice(deviceId);
+    if (!d || d.kind !== 'printer') throw new Error('Pick a printer');
+    const { buildDesignPdf } = require('./lib/designPdf');
+    // Through Flexi the cut line rides along as CutContour; printed directly by InkSign it is left off
+    const { pdf } = await buildDesignPdf(scene, { cut: job.keepCutLines ? 'spot' : 'omit', title: job.name });
+    const file = path.join(designDir(), `${safeName(job.name)}-${Date.now()}.pdf`);
+    fs.writeFileSync(file, pdf);
+    const options = {};
+    if (d.driver === 'hp-latex') {
+      if (job.hpMediaId) options.mediaId = job.hpMediaId;
+      if (job.hpModeKey) options.modeKey = job.hpModeKey;
+      options.orientation = job.orientation || 'auto';
+    }
+    return queue.add({ deviceId, action: 'file', filePath: file, name: job.name || 'Design', options, inkflow: job.inkflow || null });
+  });
+  ipcMain.handle('design:pdfBytes', async (_e, scene, cut) => {
+    const { buildDesignPdf } = require('./lib/designPdf');
+    return (await buildDesignPdf(scene, { cut: cut || 'spot' })).pdf.toString('base64');
+  });
   ipcMain.handle('files:openSvg', async () => {
     const r = await dialog.showOpenDialog(win, { title: 'Import artwork', properties: ['openFile', 'multiSelections'], filters: [{ name: 'SVG artwork', extensions: ['svg'] }] });
     if (r.canceled) return [];

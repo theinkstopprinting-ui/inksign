@@ -2,6 +2,7 @@ import React from 'react';
 
 // Simple line icons (24×24, drawn for InkSign)
 const P = {
+  design: 'M4 20l4-1 11-11-3-3L5 16zM14 7l3 3M4 4h6M4 4v6',
   home: 'M3 11.5 12 4l9 7.5M5.5 9.5V20h5v-6h3v6h5V9.5',
   vinyl: 'M6 3v18M6 5h11a3 3 0 0 1 0 6H6M9 11l8 10',
   sticker: 'M5 4h10l5 5v11H5zM15 4v5h5',

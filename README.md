@@ -12,6 +12,7 @@ It adds InkSign to the desktop and Start menu. Installing a newer version over a
 | Page | What it does |
 |---|---|
 | **Orders** | InkFlow orders in production. Pick the tool for each item and press **Open** — the artwork loads, sized from the order. When the job finishes, the item is marked printed / cut on the InkFlow order. |
+| **Design** | Flexi-style layout and design (new in 1.5, see below). Open and edit PDF, AI, EPS, SVG, DXF and pictures; draw, type, combine, contour cut; print, cut, or print & cut straight from the page. |
 | **Cut Studio** | Vinyl: import SVG / PDF / AI / DXF, trace PNG/JPG logos, text in any installed font (straight or on an arc), shapes, outline/offset, colors cut as separate jobs, copies, nesting, weed border & lines, tiling, materials with force/speed, price estimate, save/open `.inksign` jobs. Zoom with the scroll wheel. |
 | **Print & Cut** | PNG/JPG stickers: contour (or shape) cut lines, fills the sheet or roll. *InkSign marks*: print on the Xerox **or an HP**, cut on your cutter — long HP rolls get a fresh set of 4 marks every few feet (segments). *HP through Flexi*: the PDF carries a **CutContour** spot color for Flexi's own print & cut. Built-in **alignment test** per cutter. |
 | **Wide Format (HP)** | Banners/signs/canvas: nests on the roll, tiles oversize jobs, hems + grommet marks, canvas wrap, per-media Flexi hot folders, media/ink/cost before printing. |
@@ -23,6 +24,41 @@ It adds InkSign to the desktop and Start menu. Installing a newer version over a
 | **Rolls & stock** | Your InkFlow sign rolls and feet left; low rolls flagged for reorder. |
 | **Usage** | Media and ink per job, by printer and media, plus labor timers; CSV export. |
 | **Settings** | InkFlow link, watch folders, people & PINs, phone view, shared setup between PCs, updates. |
+
+## New in 1.5 — Design (layout and design like Flexi)
+
+A new **Design** page next to Cut Studio, laid out the way FlexiSIGN is: menus across the top (File, Edit, Arrange,
+Text, Effects, View), a property bar (X, Y, W, H in inches, rotate, mirror, align), tools down the left, rulers and
+guides around the page, DesignCentral-style panels on the right, and a swatch bar along the bottom
+(left-click = fill, right-click = outline, ✂ = make it a CutContour cut line).
+
+**Open and edit customer art.** PDF, Illustrator (.ai — both "PDF compatible" and older PostScript AI), EPS, SVG,
+DXF, PNG and JPG. Every shape comes in as its own object with its fill, outline color and width, pictures stay
+pictures, text is turned into shapes (so it opens right even without the font), and anything in a
+CutContour / Thru-cut spot color comes in as a cut line. *File › Open PDF / AI / EPS as a new design* takes the
+file's page size too. Multi-page PDFs: import any page.
+
+**Draw and type.** Select (click, Shift-click, drag a box, Ctrl-drag to copy), node edit (drag nodes, double-click
+an edge to add one, Delete removes one), text (click and type; any installed font, letter height, tracking, line
+spacing, alignment, text on an arc, find & replace, case, convert to outlines), rectangle, ellipse, star / polygon /
+arrow / heart, line, pen (Bézier), eyedropper, zoom and pan (or Space-drag). Snaps to guides, the page, other
+objects and an optional grid. Undo / redo everywhere.
+
+**Arrange.** Group / ungroup, compound / break apart, order, align and distribute (or exact spacing), rotate,
+mirror, lock, hide, step and repeat, fill the page with copies, auto serialize (numbered tickets, ### = 001…),
+nest on the page.
+
+**Effects.** Combine (weld, weld by color, cut out, remove overlap, common, exclude common, fuse, separate overlap),
+outline, contour cut (around art, or around a picture by tracing its shape), rectangle and page contour cut,
+drop / block / cast shadow, blend, distort (arch, bulge, wave, flag, perspective…), stripe, reduce nodes,
+rhinestone fill, rectangle and shape finisher (grommet marks), trim marks, trace a picture to shapes. Fills can be
+solid, linear or radial gradients; outlines any width; transparency per object. QR codes and Code 128 barcodes.
+
+**Output from the page.** *RIP and Print* to the HP Latex (printed directly, with media and print mode), the Xerox,
+or a Flexi hot folder (which also gets the cut lines). *Cut / Plot* to any cutter — just the cut lines, or one job
+per color with a weed border, mirrored if needed. *Print & Cut* prints the page with registration marks (26 mm
+marks for the Titan, as Flexi prints them) and then sends the contour cut. *Export* PDF (with CutContour), EPS or SVG.
+*Job info* shows the cut length, nodes and how much of each color. Designs save as `.inksign` files.
 
 ## New in 1.4 — HP Latex without Flexi, cutters matched to Flexi
 
