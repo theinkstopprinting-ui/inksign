@@ -314,6 +314,15 @@ function registerIpc() {
     }
     return out;
   });
+  // ---- HP Latex profile maker (Nix Mini, InkRIP's profile maker) ----
+  const hpProf = require('./color/hpProfiling');
+  hpProf.init({ store, queue, gs: require('./lib/ghostscript'), profilesDir: () => path.join(app.getPath('userData'), 'profiles') });
+  ipcMain.handle('hpprof:patches', (_e, kind, n) => hpProf.patchList(kind, n));
+  ipcMain.handle('hpprof:chart', (_e, o) => hpProf.printChart(o));
+  ipcMain.handle('hpprof:check', (_e, o) => hpProf.check(o));
+  ipcMain.handle('hpprof:build', (_e, o) => { shop.requireOwner(); return hpProf.build(o); });
+  ipcMain.handle('hpprof:topups', () => hpProf.topups());
+  ipcMain.handle('hpprof:topupBuild', (_e, o) => { shop.requireOwner(); return hpProf.topupBuild(o); });
   ipcMain.handle('design:pdfBytes', async (_e, scene, cut) => {
     const { buildDesignPdf } = require('./lib/designPdf');
     return (await buildDesignPdf(scene, { cut: cut || 'spot' })).pdf.toString('base64');

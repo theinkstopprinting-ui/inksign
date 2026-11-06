@@ -165,6 +165,14 @@ contextBridge.exposeInMainWorld('inksign', {
     saveLicense: (text) => ipcRenderer.invoke('nix:saveLicense', text),
     pickBridge: () => ipcRenderer.invoke('nix:pickBridge'),
   },
+  hpProfiling: {
+    patches: (kind, n) => ipcRenderer.invoke('hpprof:patches', kind, n),
+    chart: (o) => ipcRenderer.invoke('hpprof:chart', o),
+    check: (o) => ipcRenderer.invoke('hpprof:check', o),
+    build: (o) => ipcRenderer.invoke('hpprof:build', o),
+    topups: () => ipcRenderer.invoke('hpprof:topups'),
+    topupBuild: (o) => ipcRenderer.invoke('hpprof:topupBuild', o),
+  },
   print: {
     printerState: (deviceId) => ipcRenderer.invoke('print:printerState', deviceId),
     fieldOptions: (deviceId, key, patch) => ipcRenderer.invoke('print:fieldOptions', deviceId, key, patch),

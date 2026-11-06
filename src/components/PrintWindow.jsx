@@ -6,6 +6,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { plan, fitScale, printableWidth, shownSize, trimLines, LABEL_MM } from '../lib/printPlan.js';
 import { renderPages, b64ToBytes } from '../lib/pdfRender.js';
+import HpProfileMaker from './HpProfileMaker.jsx';
 
 const api = window.inksign;
 const MM = 25.4;
@@ -71,6 +72,7 @@ export default function PrintWindow({ devices, jobs = [], source, previewPdfBase
   const [thumb, setThumb] = useState(null);
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
+  const [profMaker, setProfMaker] = useState(false);
   const up = (patch) => setSet((s) => ({ ...s, ...patch }));
 
   useEffect(() => { save({ deviceId, margins: media.margins, set: { gapX: set.gapX, gapY: set.gapY, overlap: set.overlap, labels: set.labels, trim: set.trim, tile: set.tile }, color }); }, [deviceId, media.margins, set, color]);
@@ -151,6 +153,11 @@ export default function PrintWindow({ devices, jobs = [], source, previewPdfBase
             <div className={`pw-status ${printer?.alerts?.some((a) => a.severity === 'Error') ? 'bad' : printer ? 'ok' : ''}`}>
               {!dev ? 'Add a printer under Devices' : !isHp ? (isRoll ? 'Roll printer — type the media width' : 'Prints the page as laid out in the design') : asking ? 'Asking the printer…' : printer ? (printer.statusText || 'Connected') : 'Not asked yet'}
             </div>
+            {printer?.ink?.length > 0 && (
+              <div className="pw-inkline" title="Ink left in each cartridge">
+                {printer.ink.map((k, i) => <span key={`${k.code}${i}`} className={k.percent != null && k.percent < 15 ? 'low' : ''}><i style={{ background: k.css }} />{k.code} {k.percent ?? '?'}%</span>)}
+              </div>
+            )}
           </div>
           <div className="pw-joblist">
             <div className="pw-jl-head"><span>Job</span><span>Status</span></div>
@@ -268,6 +275,7 @@ export default function PrintWindow({ devices, jobs = [], source, previewPdfBase
                     <label className="pw-row"><span>Output profile</span>
                       <select value={color.icc} onChange={(e) => setColor((c) => ({ ...c, icc: e.target.value }))}>{profiles.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}</select>
                     </label>
+                    <button className="btn small" onClick={() => setProfMaker(true)} title="Print a chart, read it with the Nix Mini, build an ICC profile for this media and print mode">Make a profile for this media with the Nix…</button>
                     <label className="pw-row"><span>Rendering intent</span>
                       <select value={color.intent} onChange={(e) => setColor((c) => ({ ...c, intent: e.target.value }))}>
                         <option value="0">Perceptual (photos)</option><option value="1">Relative colorimetric (logos, spot colors)</option><option value="2">Saturation (bold graphics)</option><option value="3">Absolute colorimetric (proofing)</option>
@@ -287,7 +295,20 @@ export default function PrintWindow({ devices, jobs = [], source, previewPdfBase
                     <legend>The printer says</legend>
                     {printer.media && <div className="small">Loaded: <b>{printer.media.mediaType || '—'}</b>, {fmt(printer.media.widthMm || 0, 2)}″ wide{printer.media.trayType ? ` (${printer.media.trayType})` : ''}</div>}
                     {printer.alerts.filter((a) => a.id !== 'ready').map((a, i) => <div key={i} className={a.severity === 'Error' ? 'error small' : 'warn-text small'}>{a.severity}: {a.text}</div>)}
-                    {printer.ink.length > 0 && <div className="pw-ink">{printer.ink.map((k) => <span key={k.color} title={`${k.color} ${k.percent}%`}><i style={{ height: `${Math.max(3, k.percent)}%` }} />{k.color}</span>)}</div>}
+                    {printer.ink.length > 0 && (
+                      <div className="pw-ink">
+                        {printer.ink.map((k, i) => (
+                          <span key={`${k.code}${i}`} title={`${k.name}: ${k.percent ?? '?'}%${k.state === 'nonHP' ? ' (non-HP / refilled cartridge)' : ''}${k.product ? ` · ${k.product}` : ''} · slot ${k.slot}`}>
+                            <b>{k.percent ?? '?'}%</b>
+                            <span className="pw-ink-tank"><i style={{ height: `${Math.max(2, k.percent || 0)}%`, background: k.css }} /></span>
+                            <small>{k.code}</small>
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                    {printer.heads?.length > 0 && (
+                      <div className="small muted">Printheads: {printer.heads.map((h) => `slot ${h.slot} ${h.state === 'expired' ? '(past warranty date)' : h.state === 'nonHP' ? '(non-HP)' : h.state || ''}`.trim()).join(' · ')}</div>
+                    )}
                   </fieldset>
                 )}
               </div>
@@ -311,6 +332,10 @@ export default function PrintWindow({ devices, jobs = [], source, previewPdfBase
           </div>
         </div>
       </div>
+      {profMaker && dev && (
+        <HpProfileMaker devices={devices} deviceId={dev.id} mediaId={color.mediaId} modeKey={color.modeKey}
+          onClose={async () => { setProfMaker(false); setProfiles(await api.print.fieldOptions(dev.id, 'hpProfile').catch(() => profiles)); }} />
+      )}
     </div>
   );
 }

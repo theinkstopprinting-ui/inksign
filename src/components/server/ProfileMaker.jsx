@@ -23,14 +23,14 @@ const labCss = ([L, a, b]) => {
 // Readings as "Patch,L,a,b" lines (what InkRIP's reading parser takes; same as the Nix app's CSV)
 const toCsv = (scans) => `Patch,L,a,b\n${Object.keys(scans).map(Number).sort((a, b) => a - b).map((n) => `${n},${scans[n].map((v) => v.toFixed(2)).join(',')}`).join('\n')}`;
 
-function Scanner({ kind, n, scans, setScans, nixInfo, onNix }) {
+function Scanner({ kind, n, scans, setScans, nixInfo, onNix, getPatches }) {
   const [list, setList] = useState(null);
   const [at, setAt] = useState(1);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
   const [last, setLast] = useState(null);
   const btn = useRef(null);
-  useEffect(() => { api.profiling.patches(kind, n).then((r) => setList(r.patches)).catch((e) => setMsg(cleanErr(e))); }, [kind, n]);
+  useEffect(() => { (getPatches || api.profiling.patches)(kind, n).then((r) => setList(r.patches)).catch((e) => setMsg(cleanErr(e))); }, [kind, n]);
   useEffect(() => {
     if (!list) return;
     let k = 1; while (scans[k] && k <= list.length) k++;
@@ -82,7 +82,7 @@ function Scanner({ kind, n, scans, setScans, nixInfo, onNix }) {
   );
 }
 
-function Measure({ kind, n, text, setText, nixInfo, onNix }) {
+export function Measure({ kind, n, text, setText, nixInfo, onNix, getPatches }) {
   const [scans, setScansRaw] = useState(() => {
     const out = {};
     for (const l of String(text || '').split('\n').slice(1)) { const c = l.split(','); if (c.length >= 4 && /^\d+$/.test(c[0])) out[Number(c[0])] = c.slice(1, 4).map(Number); }
@@ -92,7 +92,7 @@ function Measure({ kind, n, text, setText, nixInfo, onNix }) {
   const fileRef = useRef(null);
   const loadFile = async (f) => { if (f) setText(await f.text()); };
   return (<>
-    <Scanner kind={kind} n={n} scans={scans} setScans={setScans} nixInfo={nixInfo} onNix={onNix} />
+    <Scanner kind={kind} n={n} scans={scans} setScans={setScans} nixInfo={nixInfo} onNix={onNix} getPatches={getPatches} />
     <div className="row" style={{ marginTop: 8 }}>
       <span className="box-title" style={{ margin: 0 }}>Readings</span>
       <button className="btn small" onClick={() => fileRef.current?.click()}>Open Nix app export…</button>
@@ -103,7 +103,7 @@ function Measure({ kind, n, text, setText, nixInfo, onNix }) {
   </>);
 }
 
-function CheckResult({ r }) {
+export function CheckResult({ r }) {
   if (!r) return null;
   return (
     <div className="pm-result">
@@ -118,7 +118,7 @@ function CheckResult({ r }) {
   );
 }
 
-function NixSetup({ info, onChange }) {
+export function NixSetup({ info, onChange }) {
   const [lic, setLic] = useState('');
   const [msg, setMsg] = useState('');
   const run = async (fn) => { setMsg(''); try { await fn(); } catch (e) { setMsg(cleanErr(e)); } onChange(); };

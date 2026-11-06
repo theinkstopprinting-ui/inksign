@@ -55,8 +55,14 @@ function resolve(cfg, opt = {}) {
   const pick = opt.icc || cfg.icc || 'auto';
   let icc = null, iccName = 'printer default';
   if (pick === 'auto') {
-    const p = M.suggestProfile(M.flexiProfiles(model), media.name, mode);
-    if (p) { try { icc = fs.readFileSync(p.file); iccName = p.name; } catch { /* unreadable */ } }
+    // a profile made in InkSign's HP profile maker for this media + print mode comes first, then Flexi's
+    const mine = require('../color/hpProfiling').autoProfile(inksignProfiles(), model, media.id, M.modeKey(mode));
+    const dir = dataDir();
+    if (mine && dir) { try { icc = fs.readFileSync(path.join(dir, 'profiles', `${mine.id}.icc`)); iccName = mine.name; } catch { /* removed */ } }
+    if (!icc) {
+      const p = M.suggestProfile(M.flexiProfiles(model), media.name, mode);
+      if (p) { try { icc = fs.readFileSync(p.file); iccName = p.name; } catch { /* unreadable */ } }
+    }
   } else if (pick.startsWith('flexi:')) {
     try { icc = fs.readFileSync(pick.slice(6)); iccName = path.basename(pick.slice(6)); } catch { throw new Error(`Color profile not found: ${pick.slice(6)}`); }
   } else if (pick.startsWith('inksign:')) {
@@ -79,7 +85,7 @@ function fieldOptions(key, cfg = {}) {
       .map((m) => ({ value: M.modeKey(m), label: M.modeLabel(m) }))];
   }
   if (key === 'hpProfile') {
-    const out = [{ value: 'auto', label: 'Auto — Flexi\'s profile for this media & mode' }, { value: 'none', label: 'None (printer default conversion)' }];
+    const out = [{ value: 'auto', label: 'Auto — your InkSign profile for this media & mode, else Flexi\'s' }, { value: 'none', label: 'None (printer default conversion)' }];
     for (const p of M.flexiProfiles(model)) out.push({ value: `flexi:${p.file}`, label: p.name, group: 'Flexi profiles' });
     for (const p of inksignProfiles().filter((x) => !x.space || /cmyk/i.test(x.space))) out.push({ value: `inksign:${p.id}`, label: p.name, group: 'InkSign profiles' });
     return out;

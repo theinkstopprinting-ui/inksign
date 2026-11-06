@@ -73,14 +73,40 @@ function parseProductStatus(xml) {
   return { status, statusText: ALERT_TEXT[status] || status, alerts };
 }
 
-/** ConsumableConfigDyn.xml → [{ color, percent }] (tolerant: any consumable with a percentage) */
-function parseInk(xml) {
-  return all(xml, 'ConsumableInfo').map((c) => ({
-    color: tag(c, 'MarkerColor') || tag(c, 'ConsumableLabelCode') || '',
-    type: tag(c, 'ConsumableTypeEnum') || '',
-    percent: Number(tag(c, 'ConsumablePercentageLevelRemaining')),
-  })).filter((c) => c.color && Number.isFinite(c.percent) && /ink/i.test(c.type || 'ink'));
+// HP 831 (Latex 300 series) cartridges. Refilled / non-HP cartridges often report no colour code, so the
+// colour comes from the product number, or failing that from the slot (the 300 series' slots, left to
+// right: M, LM, LC, C, Optimizer, Y, K — checked against the shop's 335 on 6 Nov 2026).
+const INK_BY_PRODUCT = {
+  CZ682A: 'K', CZ683A: 'C', CZ684A: 'M', CZ685A: 'Y', CZ686A: 'LC', CZ687A: 'LM', CZ688A: 'K', CZ689A: 'C', CZ690A: 'M', CZ691A: 'Y',
+  CZ692A: 'LC', CZ693A: 'LM', CZ694A: 'K', CZ695A: 'C', CZ696A: 'M', CZ697A: 'Y', CZ698A: 'LC', CZ699A: 'LM', CZ706A: 'OP', CZ707A: 'OP',
+};
+const INK_BY_SLOT_300 = { 1: 'M', 2: 'LM', 3: 'LC', 4: 'C', 5: 'OP', 6: 'Y', 7: 'K' };
+const INK_NAME = { K: 'Black', C: 'Cyan', M: 'Magenta', Y: 'Yellow', LC: 'Light cyan', LM: 'Light magenta', OP: 'Optimizer' };
+const INK_ORDER = ['M', 'LM', 'LC', 'C', 'OP', 'Y', 'K'];
+const INK_CSS = { K: '#3a3a3a', C: '#00a3e0', M: '#e10098', Y: '#ffd400', LC: '#7fd3f2', LM: '#f49ad1', OP: '#d9dde3' };
+
+/** ConsumableConfigDyn.xml → { ink: [{ code, name, css, percent, slot, product, state }], heads: [{ slot, product, label, state, installed }] } */
+function parseConsumables(xml) {
+  const ink = [], heads = [];
+  for (const c of all(xml, 'ConsumableInfo')) {
+    const type = (tag(c, 'ConsumableTypeEnum') || '').toLowerCase();
+    const slot = Number(tag(c, 'ConsumableStation')) || null;
+    const product = tag(c, 'ProductNumber') || '';
+    const label = tag(c, 'ConsumableLabelCode') || '';
+    const state = tag(c, 'ConsumableState') || '';
+    if (type === 'ink') {
+      const code = INK_BY_PRODUCT[product] || (label && INK_NAME[label] ? label : null) || INK_BY_SLOT_300[slot] || label || `Slot ${slot}`;
+      const percent = Number(tag(c, 'ConsumablePercentageLevelRemaining'));
+      ink.push({ code, name: INK_NAME[code] || code, css: INK_CSS[code] || '#999', percent: Number.isFinite(percent) ? percent : null, slot, product, state });
+    } else if (type === 'printhead') {
+      heads.push({ slot, product, label, state, installed: tag(tag(c, 'Installation') || '', 'Date') || '' });
+    }
+  }
+  ink.sort((a, b) => (INK_ORDER.indexOf(a.code) + 1 || 99) - (INK_ORDER.indexOf(b.code) + 1 || 99) || (a.slot || 0) - (b.slot || 0));
+  heads.sort((a, b) => (a.slot || 0) - (b.slot || 0));
+  return { ink, heads };
 }
+const parseInk = (xml) => parseConsumables(xml).ink;
 
 /**
  * Everything the Print window shows about the printer. Media is required; status and ink are best-effort.
@@ -94,9 +120,9 @@ async function printerState(host, opts = {}) {
   const loaded = trays.find((t) => t.widthMm) || trays[0] || null;
   let st = { status: '', statusText: '', alerts: [] };
   try { st = parseProductStatus(await get(host, '/DevMgmt/ProductStatusDyn.xml', opts)); } catch { /* older firmware */ }
-  let ink = [];
-  try { ink = parseInk(await get(host, '/DevMgmt/ConsumableConfigDyn.xml', opts)); } catch { /* optional */ }
-  return { media: loaded, trays, ...st, ink, at: new Date().toISOString() };
+  let cons = { ink: [], heads: [] };
+  try { cons = parseConsumables(await get(host, '/DevMgmt/ConsumableConfigDyn.xml', opts)); } catch { /* optional */ }
+  return { media: loaded, trays, ...st, ink: cons.ink, heads: cons.heads, at: new Date().toISOString() };
 }
 
-module.exports = { printerState, parseMediaHandling, parseProductStatus, parseInk, get };
+module.exports = { printerState, parseMediaHandling, parseProductStatus, parseConsumables, parseInk, get };

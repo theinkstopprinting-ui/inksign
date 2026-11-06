@@ -22,9 +22,15 @@ test('reads the loaded roll the way Flexi does (LEDM MediaHandlingDyn, captured 
   assert.ok(st.alerts.some((a) => /magenta\/yellow/.test(a.text)));
 });
 
+test('ink levels for all seven 831 cartridges, refills included (no colour code)', () => {
+  const { ink, heads } = H.parseConsumables(fx('ConsumableConfigDyn.xml'));
+  assert.deepStrictEqual(ink.map((k) => [k.code, k.percent]), [['M', 55], ['LM', 91], ['LC', 75], ['C', 22], ['OP', 97], ['Y', 24], ['K', 60]]);
+  assert.strictEqual(heads.length, 6);
+});
+
 test('printerState asks the printer over HTTP', async () => {
   const srv = http.createServer((req, res) => {
-    const f = { '/DevMgmt/MediaHandlingDyn.xml': 'MediaHandlingDyn.xml', '/DevMgmt/ProductStatusDyn.xml': 'ProductStatusDyn.xml' }[req.url];
+    const f = { '/DevMgmt/MediaHandlingDyn.xml': 'MediaHandlingDyn.xml', '/DevMgmt/ProductStatusDyn.xml': 'ProductStatusDyn.xml', '/DevMgmt/ConsumableConfigDyn.xml': 'ConsumableConfigDyn.xml' }[req.url];
     if (!f) { res.writeHead(404); res.end(); return; }
     res.writeHead(200, { 'Content-Type': 'text/xml' }); res.end(fx(f));
   });
@@ -33,7 +39,7 @@ test('printerState asks the printer over HTTP', async () => {
     const st = await H.printerState('127.0.0.1', { port: srv.address().port });
     assert.strictEqual(st.media.widthMm, 1371);
     assert.strictEqual(st.media.mediaKey, '150100');
-    assert.deepStrictEqual(st.ink, []);
+    assert.strictEqual(st.ink.length, 7);
   } finally { srv.close(); }
 });
 

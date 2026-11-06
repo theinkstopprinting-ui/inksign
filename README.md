@@ -25,6 +25,18 @@ It adds InkSign to the desktop and Start menu. Installing a newer version over a
 | **Usage** | Media and ink per job, by printer and media, plus labor timers; CSV export. |
 | **Settings** | InkFlow link, watch folders, people & PINs, phone view, shared setup between PCs, updates. |
 
+## New in 1.7 — HP Latex profile maker, all seven inks
+
+- **Ink levels for all seven HP 831 cartridges** — M, LM, LC, C, Optimizer, Y, K — in the Print window's header and
+  its *Print mode & color* tab, with the printheads. Refilled / non-HP cartridges don't report a color, so InkSign
+  names them from the part number (CZ686A light cyan, CZ687A light magenta, CZ706A optimizer, …) or the slot.
+- **Profile maker for the HP Latex** (Color › *HP Latex profile maker*, or *Make a profile…* in the Print window) —
+  the same system as InkRIP and the Xerox: print a 100–400 patch chart on the loaded roll in the media preset and
+  print mode being profiled (color management off), read it with the Nix Mini (USB or the Nix app's CSV), check the
+  readings, build the ICC. The new profile becomes the **Auto** profile for that media + print mode, ahead of
+  Flexi's. Top-up charts (100 hard colors) improve it later. *Match a color* on the Color page can now measure a
+  customer's sample with the Nix and give the CMYK recipe through any of these profiles.
+
 ## New in 1.6 — Print window like Flexi's RIP and Print
 
 **Print** (Ctrl+P) on the Design page opens a print window laid out like Flexi's *RIP and Print*:

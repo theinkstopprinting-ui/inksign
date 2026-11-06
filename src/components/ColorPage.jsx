@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import HpProfileMaker from './HpProfileMaker.jsx';
 import { INTENTS, INTENT_PERCEPTUAL, INTENT_RELATIVE_COLORIMETRIC, profileInfo, softProof, hexToRgb, rgbToLab, labToCmyk, nearestColors } from '../lib/color.js';
 
 const api = window.inksign;
@@ -69,21 +70,34 @@ export default function ColorPage({ devices }) {
   const [hex, setHex] = useState('#d0202e');
   const [matchProfile, setMatchProfile] = useState('');
   const [match, setMatch] = useState(null);
+  const [measured, setMeasured] = useState(null); // Lab read with the Nix (a customer's sample, a paint chip)
+  const [hpProf, setHpProf] = useState(null);
+  const [nixBusy, setNixBusy] = useState(false);
+  const measure = async () => {
+    setNixBusy(true); setMsg('');
+    try {
+      const info = await api.nix.info();
+      if (!info?.device) { const c = await api.nix.connect(); if (c && c.ok === false) throw new Error(c.error || 'Connect the Nix first (Profile maker › Nix on USB)'); }
+      const r = await api.nix.measure();
+      if (!r.ok && r.error) throw new Error(r.error);
+      setMeasured(r.lab);
+    } catch (e) { setMsg(clean(e.message)); } finally { setNixBusy(false); }
+  };
   useEffect(() => { if (!matchProfile && cmykProfiles[0]) setMatchProfile(cmykProfiles[0].id); }, [profiles]);
   useEffect(() => {
     const rgb = hexToRgb(hex);
-    if (!rgb || !settings) return;
+    if ((!rgb && !measured) || !settings) return;
     let cancelled = false;
     (async () => {
       try {
-        const lab = await rgbToLab(rgb);
+        const lab = measured || await rgbToLab(rgb);
         const near = (await nearestColors(lab, settings.colors || [])).slice(0, 5);
         const recipe = matchProfile ? await labToCmyk(lab, matchProfile, INTENT_RELATIVE_COLORIMETRIC) : null;
         if (!cancelled) setMatch({ lab, near, recipe });
       } catch (e) { if (!cancelled) setMsg(clean(e.message)); }
     })();
     return () => { cancelled = true; };
-  }, [hex, matchProfile, settings]);
+  }, [hex, matchProfile, settings, measured]);
 
   const printers = devices.filter((d) => d.kind === 'printer');
   if (!settings) return null;
@@ -91,6 +105,7 @@ export default function ColorPage({ devices }) {
 
   return (
     <div className="color-page">
+      {hpProf && <HpProfileMaker devices={devices} deviceId={hpProf.deviceId} onClose={async () => { setHpProf(null); setProfiles(await api.color.profiles()); }} />}
       <header className="page-head">
         <div><h1>Color</h1><p className="muted">ICC profiles for your printers, soft proofs, and matching brand colors to vinyl and CMYK.</p></div>
         <button className="btn primary" onClick={addProfile}>+ Add ICC profile…</button>
@@ -114,7 +129,7 @@ export default function ColorPage({ devices }) {
         {printers.map((d) => {
           const a = settings.colorProfiles?.[d.id] || {};
           if (d.driver === 'flexi-hotfolder') return <div key={d.id} className="prof-row"><span>{d.name}</span><span className="muted small">Flexi handles color</span></div>;
-          if (d.driver === 'hp-latex') return <div key={d.id} className="prof-row"><span>{d.name}</span><span className="muted small">Uses the media's profile — pick it in Devices → {d.name} → Settings</span></div>;
+          if (d.driver === 'hp-latex') return <div key={d.id} className="prof-row"><span>{d.name}</span><span className="row"><span className="muted small">Uses the profile for the media and print mode (Auto)</span><button className="btn small" onClick={() => setHpProf({ deviceId: d.id })}>Make a profile with the Nix…</button></span></div>;
           return (
             <div key={d.id} className="prof-row">
               <span>{d.name}</span>
@@ -130,6 +145,15 @@ export default function ColorPage({ devices }) {
             </div>
           );
         })}
+      </section>
+
+      <section className="card">
+        <h2 className="card-title">Make printer profiles (Nix Mini)</h2>
+        <p className="muted small">The same system as InkRIP: print a chart, read it with the Nix, InkSign builds the ICC profile.</p>
+        <div className="row">
+          <button className="btn primary" disabled={!printers.some((d) => d.driver === 'hp-latex')} onClick={() => setHpProf({})}>HP Latex profile maker…</button>
+          <span className="muted small">For the Xerox: Xerox Server › Paper catalog › Profile maker.</span>
+        </div>
       </section>
 
       <section className="card">
@@ -155,8 +179,10 @@ export default function ColorPage({ devices }) {
       <section className="card">
         <h2 className="card-title">Match a color</h2>
         <div className="row" style={{ flexWrap: 'wrap' }}>
-          <input type="color" value={hexToRgb(hex) ? hex : '#000000'} onChange={(e) => setHex(e.target.value)} />
-          <input type="text" className="btn" style={{ width: 110 }} value={hex} onChange={(e) => setHex(e.target.value.trim())} />
+          <input type="color" value={hexToRgb(hex) ? hex : '#000000'} onChange={(e) => { setMeasured(null); setHex(e.target.value); }} />
+          <input type="text" className="btn" style={{ width: 110 }} value={measured ? 'Measured' : hex} onChange={(e) => { setMeasured(null); setHex(e.target.value.trim()); }} />
+          <button className="btn" disabled={nixBusy} onClick={measure} title="Put the Nix Mini on the customer's sample, a paint chip or a printed swatch">{nixBusy ? 'Reading…' : 'Measure with the Nix'}</button>
+          {measured && <button className="btn ghost small" onClick={() => setMeasured(null)}>Use the color box</button>}
           <select value={matchProfile} onChange={(e) => setMatchProfile(e.target.value)}>
             <option value="">No printer profile</option>
             {cmykProfiles.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
