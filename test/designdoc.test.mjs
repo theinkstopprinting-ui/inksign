@@ -161,3 +161,30 @@ test('contour cut around a box with lettering on it follows the box, not the let
   const cut = r.doc.objects.find((o) => o.id === r.ids[0]);
   assert.ok(near(cut.w, 104, 0.05) && near(cut.h, 54, 0.05), `${cut.w} x ${cut.h}`);
 });
+
+test('a very detailed design (150,000 points) still makes a PDF — no call-stack overflow', async () => {
+  const pts = [];
+  for (let i = 0; i < 150000; i++) pts.push({ x: 10 + 50 * Math.cos(i / 1000), y: 10 + 50 * Math.sin(i / 997) });
+  const r = await buildDesignPdf({ w: 200, h: 200, items: [{ kind: 'path', paths: [pts], fill: '#ff0000' }, { kind: 'path', paths: [pts], cut: true }] });
+  assert.ok(r.pdf.length > 100000);
+  assert.strictEqual(r.cutCount, 1);
+});
+
+test('PDF import honors clipping masks and trims art at the page edge', async () => {
+  const { PDFDocument, PDFOperator, PDFNumber } = await import('pdf-lib');
+  const d = await PDFDocument.create();
+  const pg = d.addPage([200, 200]);
+  const N = (v) => PDFNumber.of(v), O = (o, a = []) => PDFOperator.of(o, a);
+  pg.pushOperators(
+    // a box hanging off the page on all sides
+    O('q'), O('rg', [N(1), N(0), N(0)]), O('re', [N(-50), N(-50), N(300), N(300)]), O('f'), O('Q'),
+    // a big blue box drawn inside a 50x40 clip
+    O('q'), O('re', [N(20), N(20), N(50), N(40)]), O('W'), O('n'), O('rg', [N(0), N(0), N(1)]), O('re', [N(0), N(0), N(200), N(200)]), O('f'), O('Q'),
+  );
+  const r = await pdfToObjects(pdfjs, new Uint8Array(await d.save()), {});
+  const red = r.objects.find((o) => o.fill?.color === '#ff0000');
+  const blue = r.objects.find((o) => o.fill?.color === '#0000ff');
+  const PT = 25.4 / 72;
+  assert.ok(near(red.w, 200 * PT, 0.05) && near(red.x, 0, 0.05), `red ${red.x} ${red.w}`);
+  assert.ok(near(blue.w, 50 * PT, 0.05) && near(blue.h, 40 * PT, 0.05) && near(blue.x, 20 * PT, 0.05), `blue ${blue.x} ${blue.w} ${blue.h}`);
+});

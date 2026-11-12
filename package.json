@@ -1,7 +1,7 @@
 {
   "name": "inksign",
   "productName": "InkSign",
-  "version": "1.7.3",
+  "version": "1.7.5",
   "description": "InkSign - sign shop design, RIP & cut manager for The Ink Stop (Flexi-style design, cutters, HP Latex direct, Xerox print server)",
   "main": "electron/main.js",
   "author": "The Ink Stop Screen & Sign Printing, Inc.",

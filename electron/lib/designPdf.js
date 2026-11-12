@@ -44,8 +44,8 @@ async function buildDesignPdf(scene, { cut = 'spot', title } = {}) {
   const ops = [];
   const X = (x) => n(x * PT), Y = (y) => n(H - y * PT);
 
-  const pathOps = (paths, closeAll) => {
-    const out = [];
+  // appends straight onto ops (spreading a huge path's operators into push() overflows the stack)
+  const pathOps = (paths, closeAll, out = ops) => {
     for (const p of paths) {
       if (!p || p.length < 2) continue;
       out.push(op('m', [X(p[0].x), Y(p[0].y)]));
@@ -102,7 +102,9 @@ async function buildDesignPdf(scene, { cut = 'spot', title } = {}) {
     if (it.cut) {
       if (cut === 'omit') continue;
       cutCount++;
-      ops.push(op('q'), op('CS', [PDFName.of(cutSpace())]), op('SCN', [n(1)]), op('w', [n(0.25)]), ...pathOps(it.paths), op('S'), op('Q'));
+      ops.push(op('q'), op('CS', [PDFName.of(cutSpace())]), op('SCN', [n(1)]), op('w', [n(0.25)]));
+      pathOps(it.paths);
+      ops.push(op('S'), op('Q'));
       continue;
     }
     if (cut === 'only') continue;
@@ -112,7 +114,7 @@ async function buildDesignPdf(scene, { cut = 'spot', title } = {}) {
     if (it.opacity != null && it.opacity < 1) ops.push(op('gs', [PDFName.of(alphaState(it.opacity))]));
     if (hasFill) ops.push(op('rg', rgbOf(it.fill).map(n)));
     if (hasStroke) ops.push(op('RG', rgbOf(it.stroke).map(n)), op('w', [n(it.strokeMm * PT)]), op('j', [n(1)]), op('J', [n(1)]));
-    ops.push(...pathOps(it.paths));
+    pathOps(it.paths);
     const eo = it.fillRule !== 'nonzero';
     ops.push(op(hasFill && hasStroke ? (eo ? 'B*' : 'B') : hasFill ? (eo ? 'f*' : 'f') : 'S'), op('Q'));
   }
@@ -122,7 +124,8 @@ async function buildDesignPdf(scene, { cut = 'spot', title } = {}) {
     for (const [x, y, w, h] of markRects(scene.w, scene.h, scene.marks)) ops.push(op('re', [X(x), n(H - (y + h) * PT), n(w * PT), n(h * PT)]), op('f'));
     ops.push(op('Q'));
   }
-  page.pushOperators(...ops);
+  // in chunks: spreading hundreds of thousands of operators at once overflows the call stack
+  for (let i = 0; i < ops.length; i += 4000) page.pushOperators(...ops.slice(i, i + 4000));
   return { pdf: Buffer.from(await doc.save({ useObjectStreams: false })), cutCount };
 }
 

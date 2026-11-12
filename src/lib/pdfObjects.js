@@ -4,7 +4,8 @@
 // or plain 100% magenta strokes) become cut lines. All in mm from the PDF page's top-left.
 //
 // pdfjs is passed in so this runs both in the app (Vite build) and in node tests (legacy build).
-import { flattenCubic, flattenQuad } from './geometry.js';
+import { flattenCubic, flattenQuad, isClosed, bounds } from './geometry.js';
+import { boolean, pointInPoly } from './cuttools.js';
 import { shapeFromPaths, imageObject, newId, CUT_COLOR } from './doc.js';
 
 const PT = 25.4 / 72;
@@ -43,7 +44,47 @@ export async function pdfToObjects(pdfjs, bytes, { page: pageNo = 1, imageToData
   const STROKES = new Set([O.stroke, O.closeStroke, O.fillStroke, O.eoFillStroke, O.closeFillStroke, O.closeEOFillStroke]);
   const EO = new Set([O.eoFill, O.eoFillStroke, O.closeEOFillStroke]);
 
-  let st = { ctm: [1, 0, 0, 1, 0, 0], fill: '#000000', stroke: '#000000', lw: 1, fa: 1, sa: 1 };
+  // clip: the current clipping area (closed paths, mm) or null = the whole page
+  let st = { ctm: [1, 0, 0, 1, 0, 0], fill: '#000000', stroke: '#000000', lw: 1, fa: 1, sa: 1, clip: null, fillShade: null };
+  let pendingClip = null; // 'nonzero' | 'evenodd' — the next path sets the clip (PDF "W n")
+  const pageRect = () => [[{ x: 0, y: 0 }, { x: pageW, y: 0 }, { x: pageW, y: pageH }, { x: 0, y: pageH }, { x: 0, y: 0 }]];
+  // Clipped artwork (masks, "Draw Inside", a background trimmed to an arc) is cut to its clip
+  // Art past the page edge is trimmed to the page, the way it prints from the PDF
+  const offPage = (paths) => { const b = bounds(paths); return b.minX < -0.01 || b.minY < -0.01 || b.maxX > pageW + 0.01 || b.maxY > pageH + 0.01; };
+  const clipFill = (paths) => {
+    const clip = st.clip || (offPage(paths) ? pageRect() : null);
+    if (!clip) return paths;
+    const closed = paths.filter(isClosed);
+    if (!closed.length) return paths;
+    return boolean(closed, clip, 'intersection');
+  };
+  const clipLines = (paths) => {
+    const clipArea = st.clip || (offPage(paths) ? pageRect() : null);
+    if (!clipArea) return paths;
+    const clip = clipArea;
+    const out = [];
+    for (const p of paths) {
+      let run = [];
+      for (let k = 1; k < p.length; k++) {
+        const m = { x: (p[k - 1].x + p[k].x) / 2, y: (p[k - 1].y + p[k].y) / 2 };
+        const inside = clip.reduce((n, c) => n + (pointInPoly(m, c) ? 1 : 0), 0) % 2 === 1;
+        if (inside) { if (!run.length) run.push(p[k - 1]); run.push(p[k]); } else if (run.length) { out.push(run); run = []; }
+      }
+      if (run.length) out.push(run);
+    }
+    return out;
+  };
+  // pdf.js shading IR -> our gradient fill
+  const shadeFill = (ir, ctm) => {
+    if (!Array.isArray(ir) || ir[0] !== 'RadialAxial') return null;
+    const [, kind, , stops, p0, p1] = ir;
+    const cols = (stops || []).map((x) => hex(x[1]));
+    if (!cols.length) return null;
+    const a = toMm(apply(ctm, p0[0], p0[1])), b = toMm(apply(ctm, p1[0], p1[1]));
+    const angle = Math.round((Math.atan2(b.y - a.y, b.x - a.x) * 180) / Math.PI);
+    return kind === 'radial' ? { type: 'radial', color: cols[0], color2: cols[cols.length - 1] }
+      : { type: 'linear', color: cols[0], color2: cols[cols.length - 1], angle: ((angle % 360) + 360) % 360 };
+  };
   const stack = [];
   const objects = [];
   const notes = new Set();
@@ -108,7 +149,7 @@ export async function pdfToObjects(pdfjs, bytes, { page: pageNo = 1, imageToData
     else if (fn === O.transform) st = { ...st, ctm: mul(st.ctm, args) };
     else if (fn === O.paintFormXObjectBegin) { stack.push({ ...st }); if (args && args[0]) st = { ...st, ctm: mul(st.ctm, args[0]) }; }
     else if (fn === O.paintFormXObjectEnd) { const s = stack.pop(); if (s) st = s; }
-    else if (fn === O.setFillRGBColor) st = { ...st, fill: hex(args[0]) };
+    else if (fn === O.setFillRGBColor) st = { ...st, fill: hex(args[0]), fillShade: null };
     else if (fn === O.setStrokeRGBColor) st = { ...st, stroke: hex(args[0]) };
     else if (fn === O.setLineWidth) st = { ...st, lw: Number(args[0]) || 0 };
     else if (fn === O.setGState) {
@@ -117,7 +158,28 @@ export async function pdfToObjects(pdfjs, bytes, { page: pageNo = 1, imageToData
         if (k === 'ca') st = { ...st, fa: Number(v) };
         if (k === 'CA') st = { ...st, sa: Number(v) };
       }
-    } else if (fn === O.shadingFill) skippedShading++;
+    } else if (fn === O.clip) pendingClip = 'nonzero';
+    else if (fn === O.eoClip) pendingClip = 'evenodd';
+    else if (fn === O.setFillColorN || fn === O.setFillColor) {
+      // a shading pattern used as a fill color: ["Shading", objId, patternMatrix] — the pattern matrix
+      // maps pattern space to the page's default space (not the current transform)
+      let f = null;
+      if (Array.isArray(args) && args[0] === 'Shading') {
+        const ir = typeof args[1] === 'string' ? await getObj(args[1]) : args[1];
+        f = shadeFill(ir, args[2] || [1, 0, 0, 1, 0, 0]);
+      }
+      st = { ...st, fillShade: f };
+    } else if (fn === O.shadingFill) {
+      // "sh": paint a gradient over the clip area (or the page)
+      const ir = typeof args[0] === 'string' ? await getObj(args[0]) : args[0];
+      const f = shadeFill(ir, st.ctm);
+      const area = st.clip || pageRect();
+      if (f && area.length) {
+        const o = shapeFromPaths(area, { name: 'Gradient', fill: f, stroke: { color: null, width: 0 }, fillRule: 'evenodd' });
+        if (st.fa < 1) o.opacity = st.fa;
+        objects.push(o);
+      } else skippedShading++;
+    }
     else if (fn === O.paintImageXObject || fn === O.paintImageXObjectRepeat) {
       const img = await getObj(args[0]);
       if (img) await imageAt(img, st.ctm); else skippedImages++;
@@ -125,8 +187,21 @@ export async function pdfToObjects(pdfjs, bytes, { page: pageNo = 1, imageToData
     else if (fn === O.constructPath) {
       const [paintOp, dataList] = args;
       const doFill = FILLS.has(paintOp), doStroke = STROKES.has(paintOp);
-      if (!doFill && !doStroke) continue; // clip / endPath
-      const paths = pathFrom(dataList, st.ctm);
+      if (pendingClip) {
+        const cp = pathFrom(dataList, st.ctm).map((p) => (isClosed(p) ? p : [...p, { ...p[0] }])).filter((p) => p.length > 3);
+        const own = pendingClip === 'evenodd' ? cp : boolean(cp, [], 'union');
+        st = { ...st, clip: st.clip ? boolean(st.clip, own, 'intersection') : own };
+        pendingClip = null;
+        // a clip that covers the whole page clips nothing
+        if (st.clip && st.clip.length) {
+          const b = bounds(st.clip);
+          if (b.minX <= 0.01 && b.minY <= 0.01 && b.maxX >= pageW - 0.01 && b.maxY >= pageH - 0.01 && st.clip.length === 1 && st.clip[0].length <= 6) st = { ...st, clip: null };
+        }
+      }
+      if (!doFill && !doStroke) continue; // endPath (after W)
+      const raw = pathFrom(dataList, st.ctm);
+      if (!raw.length) continue;
+      const paths = doFill ? clipFill(raw) : clipLines(raw);
       if (!paths.length) continue;
       const strokeW = st.lw * scaleOf(st.ctm) * PT;
       const cutStroke = doStroke && (st.stroke === CUT_MARK || (cutMagenta && isCutColor(st.stroke)));
@@ -139,7 +214,7 @@ export async function pdfToObjects(pdfjs, bytes, { page: pageNo = 1, imageToData
       }
       const o = shapeFromPaths(paths, {
         name: doFill ? 'Shape' : 'Line',
-        fill: doFill ? { type: 'solid', color: st.fill } : { type: 'none' },
+        fill: doFill ? (st.fillShade || { type: 'solid', color: st.fill }) : { type: 'none' },
         stroke: doStroke ? { color: st.stroke, width: Math.max(0.05, strokeW) } : { color: null, width: 0 },
         fillRule: EO.has(paintOp) ? 'evenodd' : 'nonzero',
       });

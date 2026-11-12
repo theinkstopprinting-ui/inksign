@@ -57,7 +57,8 @@ async function buildLayoutPdf(src, lay) {
     for (const [a, b] of lay.trim) ops.push(op('m', [n((W - a.x) * PT), n(a.y * PT)]), op('l', [n((W - b.x) * PT), n(b.y * PT)]), op('S'));
     ops.push(op('Q'));
   }
-  page.pushOperators(...ops);
+  // in chunks: spreading hundreds of thousands of operators at once overflows the call stack
+  for (let i = 0; i < ops.length; i += 4000) page.pushOperators(...ops.slice(i, i + 4000));
   if (lay.labels && lay.labels.length) {
     const font = await doc.embedFont(StandardFonts.Helvetica);
     for (const l of lay.labels) {
