@@ -93,7 +93,12 @@ function fieldOptions(key, cfg = {}) {
   return [];
 }
 
-async function printBytes(cfg, pdf, { jobName, options = {}, orientation, progress, sink } = {}) {
+// The job's media and print mode in words, for the job queue
+function describe(cfg, options = {}) {
+  try { const r = resolve(cfg, options); return `${r.media.name} · ${M.modeLabel(r.mode)}`; } catch { return ''; }
+}
+
+async function printBytes(cfg, pdf, { jobName, options = {}, orientation, progress, sink, signal } = {}) {
   const r = resolve(cfg, options);
   const J = require('../lib/hpLatexJob');
   const out = sink || J.tcpSink(cfg.host, Number(cfg.port) || 9100);
@@ -103,8 +108,12 @@ async function printBytes(cfg, pdf, { jobName, options = {}, orientation, progre
     mediaId: r.media.id, mode: r.mode, icc: r.icc, intent: Number(options.intent ?? cfg.intent) || 0,
     jobName, user: options.user || 'InkSign', orientation: orientation || options.orientation || 'auto',
     offsetIn: Number(options.offsetIn ?? cfg.offsetIn) || 0, removeCut: options.removeCut != null ? options.removeCut !== false : cfg.removeCut !== false, cutterId: options.cutterId,
-    onProgress: (f, text) => { if (progress && Date.now() - last > 700) { last = Date.now(); progress(`Printing… ${text}`); } },
+    onProgress: (f, text) => { if (progress && Date.now() - last > 700) { last = Date.now(); progress(`Sending to the printer… ${text}`, f); } },
+    signal,
   }, out);
+  if (res.aborted) {
+    return { ...res, message: `Stopped while sending (${(res.rows / R.DPI).toFixed(1)}" of it had gone). The printer may still print that part — press Cancel on its front panel to stop it.` };
+  }
   const ft = (res.rows / R.DPI / 12);
   return {
     message: `Printed on ${r.media.name}, ${M.modeLabel(r.mode)} — ${ft < 1 ? `${(res.rows / R.DPI).toFixed(1)}"` : `${ft.toFixed(1)} ft`} (${(res.bytes / 1048576).toFixed(1)} MB${r.icc ? `, ${r.iccName}` : ''}${res.cutLinesRemoved ? `, ${res.cutLinesRemoved} cut line${res.cutLinesRemoved > 1 ? 's' : ''} left off` : ''})`,
@@ -112,10 +121,10 @@ async function printBytes(cfg, pdf, { jobName, options = {}, orientation, progre
   };
 }
 
-async function sendTest(cfg, { jobName = 'InkSign test', deviceName = 'HP Latex', progress } = {}) {
+async function sendTest(cfg, { jobName = 'InkSign test', deviceName = 'HP Latex', progress, signal } = {}) {
   const w = Math.min(12, Number(cfg.rollWidthIn) || 12);
   const pdf = await makeTestPdf({ widthIn: w, heightIn: 8, title: `InkSign test — ${deviceName}`, subtitle: `Printed directly by InkSign · ${new Date().toLocaleString()}` });
-  return printBytes(cfg, pdf, { jobName, progress });
+  return printBytes(cfg, pdf, { jobName, progress, signal });
 }
 
 const TYPES = ['.pdf', '.png', '.jpg', '.jpeg'];
@@ -135,10 +144,11 @@ async function sendFile(cfg, filePath, ctx = {}) {
   const ext = path.extname(filePath).toLowerCase();
   if (!TYPES.includes(ext)) throw new Error(`The HP prints ${TYPES.join(', ')}`);
   const pdf = ext === '.pdf' ? fs.readFileSync(filePath) : await imageToPdf(filePath);
-  return printBytes(cfg, pdf, { jobName: ctx.jobName || path.basename(filePath), options: ctx.options || {}, progress: ctx.progress });
+  return printBytes(cfg, pdf, { jobName: ctx.jobName || path.basename(filePath), options: ctx.options || {}, progress: ctx.progress, signal: ctx.signal });
 }
 
 module.exports = {
   id: 'hp-latex', name: 'HP Latex — printed directly by InkSign (no Flexi)', kind: 'printer',
-  fields, fileTypes: TYPES, missing, checkStatus, sendTest, sendFile, fieldOptions, resolve, printBytes,
+  fields, fileTypes: TYPES, missing, checkStatus, sendTest, sendFile, fieldOptions, resolve, printBytes, describe,
+  canAbort: true, // a job being sent can be stopped (see hpLatexJob signal)
 };

@@ -206,7 +206,15 @@ contextBridge.exposeInMainWorld('inksign', {
     release: (id) => ipcRenderer.invoke('jobs:release', id),
     remove: (id) => ipcRenderer.invoke('jobs:remove', id),
     sendCut: (deviceId, job) => ipcRenderer.invoke('jobs:sendCut', deviceId, job),
-    clearFinished: () => ipcRenderer.invoke('jobs:clearFinished'),
+    clearFinished: (deviceId) => ipcRenderer.invoke('jobs:clearFinished', deviceId),
+    cancel: (id) => ipcRenderer.invoke('jobs:cancel', id),
+    move: (id, where) => ipcRenderer.invoke('jobs:move', id, where),
+    reassign: (id, deviceId) => ipcRenderer.invoke('jobs:reassign', id, deviceId),
+    reprint: (id) => ipcRenderer.invoke('jobs:reprint', id),
+    pause: (deviceId, paused) => ipcRenderer.invoke('jobs:pause', deviceId, paused),
+    cancelWaiting: (deviceId) => ipcRenderer.invoke('jobs:cancelWaiting', deviceId),
+    thumb: (name) => ipcRenderer.invoke('jobs:thumb', name),
+    printerLive: (deviceId) => ipcRenderer.invoke('jobs:printerLive', deviceId),
     onUpdate: (cb) => {
       const h = (_e, job) => cb(job);
       ipcRenderer.on('jobs:update', h);

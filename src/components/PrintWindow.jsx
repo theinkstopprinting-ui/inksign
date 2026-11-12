@@ -7,6 +7,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { plan, fitScale, printableWidth, shownSize, trimLines, LABEL_MM } from '../lib/printPlan.js';
 import { renderPages, b64ToBytes } from '../lib/pdfRender.js';
 import HpProfileMaker from './HpProfileMaker.jsx';
+import { supplyWarnings } from '../lib/supplies.js';
 
 const api = window.inksign;
 const MM = 25.4;
@@ -60,6 +61,7 @@ export default function PrintWindow({ devices, jobs = [], source, previewPdfBase
     margins: { left: 9, right: 9, lead: 0, trail: 0, ...(saved.margins || {}) },
   }));
   const [printer, setPrinter] = useState(null); // last answer from the printer
+  const supplies = supplyWarnings(printer);
   const [asking, setAsking] = useState(false);
   const [set, setSet] = useState(() => ({ scale: 100, rotate: 0, x: 0, y: 0, copies: 1, gapX: 12.7, gapY: 12.7, tile: false, overlap: 19.05, labels: false, trim: false, ...(saved.set || {}), copies: 1, x: 0, y: 0, scale: 100, rotate: 0 }));
   const [hpMedia, setHpMedia] = useState([]);
@@ -161,6 +163,13 @@ export default function PrintWindow({ devices, jobs = [], source, previewPdfBase
               {!dev ? 'Add a printer under Devices' : !isHp ? (isRoll ? 'Roll printer — type the media width' : 'Prints the page as laid out in the design') : asking === 'wake' ? 'Waking the printer up…' : asking ? 'Asking the printer (wakes it up if it\'s asleep — can take a minute)…' : printer ? (printer.statusText || 'Connected') : 'Not asked yet'}
             </div>
             {isHp && <button className="btn small" disabled={!!asking} onClick={wakeUp} title="Wake the printer from power save, like Flexi's Wake Up Printer">☀ Wake up printer</button>}
+            {supplies && (
+              <div className="pw-supply-warn" title={[supplies.nonHp.length ? `Non-HP: ${supplies.nonHp.join(', ')}` : '', supplies.expired.length ? `Expired: ${supplies.expired.join(', ')}` : ''].filter(Boolean).join('\n')}>
+                ⚠ {supplies.nonHp.length > 0 && <>{supplies.nonHp.length} non-HP suppl{supplies.nonHp.length === 1 ? 'y' : 'ies'}</>}
+                {supplies.nonHp.length > 0 && supplies.expired.length > 0 && ' · '}
+                {supplies.expired.length > 0 && <>{supplies.expired.length} expired</>} — see Print mode & color
+              </div>
+            )}
             {printer?.ink?.length > 0 && (
               <div className="pw-inkline" title="Ink left in each cartridge">
                 {printer.ink.map((k, i) => <span key={`${k.code}${i}`} className={k.percent != null && k.percent < 15 ? 'low' : ''}><i style={{ background: k.css }} />{k.code} {k.percent ?? '?'}%</span>)}
@@ -317,6 +326,13 @@ export default function PrintWindow({ devices, jobs = [], source, previewPdfBase
                             <small>{k.code}</small>
                           </span>
                         ))}
+                      </div>
+                    )}
+                    {supplies && (
+                      <div className="pw-supply-warn">
+                        {supplies.nonHp.length > 0 && <div><b>Non-HP:</b> {supplies.nonHp.join(', ')}</div>}
+                        {supplies.expired.length > 0 && <div><b>Expired:</b> {supplies.expired.join(', ')}</div>}
+                        <div>Refilled or compatible ink and old printheads can print grainy solids. Check a test print before a client job.</div>
                       </div>
                     )}
                     {printer.heads?.length > 0 && (

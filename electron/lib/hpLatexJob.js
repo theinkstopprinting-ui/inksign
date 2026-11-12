@@ -54,9 +54,12 @@ async function slicePdf(src, pageIndex, box, rotate) {
  * Build and stream an HP Latex job.
  * opts: { model, rollWidthIn, mediaId, mode, icc (Buffer), intent (0-3), blackPoint, jobName, user,
  *         orientation, offsetIn (from the printer's right edge), removeCut (default true), cutterId,
- *         gs (ghostscript module), onProgress(fraction, text) }
+ *         gs (ghostscript module), onProgress(fraction, text), signal ({ aborted } — stops sending) }
  * sink: { write(Buffer): Promise, end(): Promise }
- * Returns { pages, rows, cols, bytes, cutLinesRemoved }
+ * Returns { pages, rows, cols, bytes, cutLinesRemoved, aborted }
+ *
+ * Stopped part way (signal.aborted), the page is ended properly (end of raster, form feed, end of job)
+ * so the printer closes the job instead of waiting for data — it prints the rows it already has.
  */
 async function printPdf(pdfBytes, opts, sink) {
   const gs = opts.gs || require('./ghostscript');
@@ -77,7 +80,8 @@ async function printPdf(pdfBytes, opts, sink) {
   colorArgs.push(`-dRenderIntent=${Number.isInteger(opts.intent) ? opts.intent : 0}`);
   if (opts.blackPoint !== false) colorArgs.push('-dBlackPtComp=1');
 
-  let written = 0, totalRows = 0, lastCols = 0;
+  let written = 0, totalRows = 0, lastCols = 0, aborted = false;
+  const stop = () => !!(opts.signal && opts.signal.aborted);
   const out = { chunks: [], size: 0 };
   const flush = async (force) => {
     if (!out.size || (!force && out.size < 1 << 20)) return;
@@ -88,7 +92,8 @@ async function printPdf(pdfBytes, opts, sink) {
   };
   const push = async (b) => { out.chunks.push(b); out.size += b.length; if (out.size >= 1 << 20) await flush(true); };
 
-  for (let pi = 0; pi < pages.length; pi++) {
+  for (let pi = 0; pi < pages.length && !aborted; pi++) {
+    if (stop()) { aborted = true; break; }
     const page = pages[pi];
     const uu = pageUnit(page);
     const mb = page.getMediaBox();
@@ -124,6 +129,7 @@ async function printPdf(pdfBytes, opts, sink) {
     let seed = bufB;
     const activeW = offsetPx + cols;
     for (let r0 = 0; r0 < rows; r0 += rowsPerBand) {
+      if (stop()) { aborted = true; break; }
       const n = Math.min(rowsPerBand, rows - r0);
       // Rows r0..r0+n counted from the bottom of the shown page -> a box in the page's own units
       const a = (r0 / R.DPI) * PT / uu, bnd = ((r0 + n) / R.DPI) * PT / uu;
@@ -161,7 +167,7 @@ async function printPdf(pdfBytes, opts, sink) {
   }
   await flush(true);
   await sink.end();
-  return { pages: pages.length, rows: totalRows, cols: lastCols, bytes: written, cutLinesRemoved };
+  return { pages: pages.length, rows: totalRows, cols: lastCols, bytes: written, cutLinesRemoved, aborted };
 }
 
 // ---- sinks ----

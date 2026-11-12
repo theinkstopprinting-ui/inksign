@@ -191,7 +191,7 @@ export default function App() {
         {tab === 'server' && <JobCenter owner={owner} active />}
         {tab === 'history' && <HistoryPage devices={devices} onJobsSent={() => setTab('queue')} />}
         {tab === 'inventory' && <InventoryPage />}
-        {tab === 'queue' && <QueueView jobs={jobs} reload={reloadJobs} />}
+        {tab === 'queue' && <QueueView jobs={jobs} devices={devices} statuses={statuses} reload={async () => { await reloadJobs(); await reloadDevices(); }} />}
         {tab === 'usage' && <Usage jobs={jobs} />}
         {tab === 'color' && <ColorPage devices={devices} />}
         {tab === 'settings' && (owner ? <Settings devices={devices} onUsersChanged={loadUsers} />

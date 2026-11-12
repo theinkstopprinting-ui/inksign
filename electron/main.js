@@ -576,7 +576,49 @@ function registerIpc() {
   ipcMain.handle('fonts:read', (_e, file) => fonts.readFont(file));
   ipcMain.handle('jobs:retry', (_e, id) => queue.retry(id));
   ipcMain.handle('jobs:remove', (_e, id) => queue.remove(id));
-  ipcMain.handle('jobs:clearFinished', () => queue.clearFinished());
+  ipcMain.handle('jobs:clearFinished', (_e, deviceId) => queue.clearFinished(deviceId || null));
+  // ---- Job queue page: per machine, with pictures, reorder, move, cancel ----
+  ipcMain.handle('jobs:cancel', (_e, id) => queue.cancelJob(id));
+  ipcMain.handle('jobs:move', (_e, id, where) => queue.move(id, where));
+  ipcMain.handle('jobs:reassign', (_e, id, deviceId) => queue.reassign(id, deviceId));
+  ipcMain.handle('jobs:reprint', (_e, id) => queue.reprint(id));
+  ipcMain.handle('jobs:pause', (_e, deviceId, paused) => { queue.setPaused(deviceId, paused); return store.getDevice(deviceId); });
+  ipcMain.handle('jobs:cancelWaiting', (_e, deviceId) => queue.cancelWaiting(deviceId));
+  ipcMain.handle('jobs:thumb', (_e, name) => require('./lib/jobThumb').thumbDataUrl(thumbDir(), name));
+  // What an HP is doing right now, without waking it (the queue page asks every few seconds)
+  ipcMain.handle('jobs:printerLive', async (_e, deviceId) => {
+    const d = store.getDevice(deviceId);
+    if (!d || d.driver !== 'hp-latex' || !d.config.host) return null;
+    try {
+      const st = await require('./lib/hpStatus').printerState(d.config.host, { noWake: true, timeoutMs: 5000 });
+      const errors = (st.alerts || []).filter((a) => a.current && a.severity === 'Error');
+      return {
+        state: errors.length ? 'error' : /powersave/i.test(st.status || '') ? 'sleep' : /print|process|busy/i.test(st.status || '') ? 'printing' : 'ok',
+        text: errors.length ? errors.map((a) => a.text).join(' · ') : (st.statusText || 'Ready'),
+        media: st.media ? { name: st.media.mediaType || '', widthMm: st.media.widthMm || 0 } : null,
+        lowInk: (st.ink || []).filter((k) => k.percent != null && k.percent < 15).map((k) => k.code),
+      };
+    } catch (e) {
+      return /asleep/i.test(e.message) ? { state: 'sleep', text: 'Asleep (power save)' } : { state: 'offline', text: e.message };
+    }
+  });
+}
+
+const thumbDir = () => path.join(app.getPath('userData'), 'job-pictures');
+function setupJobPictures() {
+  const J = require('./lib/jobThumb');
+  const { nativeImage } = require('electron');
+  const resizeImage = (buf, max) => {
+    const img = nativeImage.createFromBuffer(buf);
+    if (img.isEmpty()) return null;
+    const { width, height } = img.getSize();
+    const k = Math.min(1, max / Math.max(width, height));
+    return img.resize({ width: Math.max(1, Math.round(width * k)), height: Math.max(1, Math.round(height * k)), quality: 'good' }).toPNG();
+  };
+  queue.setThumbMaker(
+    (job) => J.makeJobThumb(job, { dir: thumbDir(), gs: require('./lib/ghostscript'), resizeImage }),
+    (name) => J.removeThumb(thumbDir(), name),
+  );
 }
 
 function startWatchers() {
@@ -641,6 +683,7 @@ if (!smoke && !app.requestSingleInstanceLock()) {
     });
     queue.setDeviceNotifier((d) => { if (win && !win.isDestroyed()) win.webContents.send('devices:update', d); });
     queue.setUserSource(() => shop.userName());
+    setupJobPictures();
     registerIpc();
     shop.register(ipcMain);
     createWindow();
