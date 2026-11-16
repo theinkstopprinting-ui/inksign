@@ -23,6 +23,7 @@ contextBridge.exposeInMainWorld('inksign', {
   },
   cutter: {
     jog: (id, move) => ipcRenderer.invoke('cutter:jog', id, move),
+    areaTest: (id, paths, overrides) => ipcRenderer.invoke('cutter:areaTest', id, paths, overrides),
     setStart: (id, here) => ipcRenderer.invoke('cutter:setStart', id, here),
     roll: (id, patch) => ipcRenderer.invoke('cutter:roll', id, patch),
     pause: (id, paused) => ipcRenderer.invoke('cutter:pause', id, paused),
@@ -110,6 +111,11 @@ contextBridge.exposeInMainWorld('inksign', {
     print: (deviceId, job) => ipcRenderer.invoke('printcut:print', deviceId, job),
     cut: (deviceId, job) => ipcRenderer.invoke('printcut:cut', deviceId, job),
     savePdf: (job) => ipcRenderer.invoke('printcut:savePdf', job),
+    newJobNo: () => ipcRenderer.invoke('printcut:newJobNo'),
+    saveJob: (no, job) => ipcRenderer.invoke('printcut:saveJob', no, job),
+    savedJobs: () => ipcRenderer.invoke('printcut:savedJobs'),
+    cutSaved: (deviceId, no, overrides) => ipcRenderer.invoke('printcut:cutSaved', deviceId, no, overrides),
+    deleteSaved: (no) => ipcRenderer.invoke('printcut:deleteSaved', no),
   },
   settings: {
     get: () => ipcRenderer.invoke('settings:get'),

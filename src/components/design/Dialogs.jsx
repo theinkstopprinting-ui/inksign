@@ -1,7 +1,8 @@
 // Dialogs for the Design workspace: effect settings (one generic form driven by a field list),
-// RIP and Print, Cut/Plot, Print & Cut, and Job Info.
+// RIP and Print, Print & Cut, and Job Info. (Cut / Plot is the Send to be Cut window, CutWindow.jsx.)
 import React, { useEffect, useMemo, useState } from 'react';
 import { MM } from './Panels.jsx';
+import { jobBarcode } from '../../lib/jobBarcode.js';
 
 const api = window.inksign;
 const remember = (key, v) => { try { window.localStorage.setItem(`inksign.dz.${key}`, JSON.stringify(v)); } catch { /* not saved */ } };
@@ -124,62 +125,6 @@ export function PrintDialog({ devices, doc, scene, onClose, onSent, defaultName 
   );
 }
 
-// ---------------- Cut / Plot ----------------
-export function CutDialog({ devices, groupsFor, onClose, onSent, defaultName, hasCutLines, hasSelection }) {
-  const cutters = devices.filter((d) => d.kind === 'cutter');
-  const [deviceId, setDeviceId] = useState(recall('cutter') || cutters[0]?.id || '');
-  const dev = cutters.find((d) => d.id === deviceId) || cutters[0];
-  const [what, setWhat] = useState(hasCutLines ? 'cut' : 'color');
-  const [onlySel, setOnlySel] = useState(false);
-  const [weedIn, setWeedIn] = useState(0.25);
-  const [mirror, setMirror] = useState(false);
-  const [hold, setHold] = useState(true);
-  const [name, setName] = useState(defaultName);
-  const [err, setErr] = useState('');
-  const [busy, setBusy] = useState(false);
-  const panels = useMemo(() => groupsFor(what, onlySel, { weedMm: weedIn * MM, mirror }), [what, onlySel, weedIn, mirror]);
-  const go = async (save) => {
-    setErr('');
-    if (!dev) { setErr('Add a cutter under Devices first'); return; }
-    if (!panels.length) { setErr('Nothing to cut'); return; }
-    setBusy(true);
-    try {
-      remember('cutter', dev.id);
-      const out = panels.map((p, i) => ({ name: p.color ? `${name} — ${p.name}` : name, paths: p.paths, hold: hold && i > 0, holdMessage: p.color ? `Load ${p.name} vinyl, then press Release` : undefined }));
-      if (save) {
-        const files = await api.files.saveCut(dev.id, { name, panels: out, overrides: {} });
-        if (files.length) onSent(`Saved ${files.length} cut file${files.length > 1 ? 's' : ''}`);
-      } else {
-        await api.jobs.sendCut(dev.id, { name, panels: out, overrides: {} });
-        onSent(`Sent ${out.length} cut job${out.length > 1 ? 's' : ''} to ${dev.name}`);
-      }
-      onClose();
-    } catch (e) { setErr(e.message); } finally { setBusy(false); }
-  };
-  const ft = panels.reduce((s, p) => s + p.paths.reduce((a, q) => a + q.reduce((b, pt, k) => (k ? b + Math.hypot(pt.x - q[k - 1].x, pt.y - q[k - 1].y) : 0), 0), 0), 0) / MM / 12;
-  return (
-    <Modal title="Cut / Plot" onClose={onClose} foot={<><span className="error">{err}</span><div className="row"><button className="btn" onClick={onClose}>Cancel</button><button className="btn" disabled={busy} onClick={() => go(true)}>Save cut file…</button><button className="btn primary" disabled={busy || !dev} onClick={() => go(false)}>Send to cutter</button></div></>}>
-      {!cutters.length && <p className="warn-text">No cutters set up yet — add one under Devices.</p>}
-      <div className="dz-form">
-        <label className="dz-field"><span>Job name</span><input type="text" value={name} onChange={(e) => setName(e.target.value)} /></label>
-        <label className="dz-field"><span>Cutter</span><select value={dev?.id || ''} onChange={(e) => setDeviceId(e.target.value)}>{cutters.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}</select></label>
-        <label className="dz-field"><span>What to cut</span>
-          <select value={what} onChange={(e) => setWhat(e.target.value)}>
-            {hasCutLines && <option value="cut">Cut lines only (CutContour)</option>}
-            <option value="color">Every shape, one job per color (vinyl)</option>
-            <option value="all">Every shape, all in one job</option>
-          </select>
-        </label>
-        {hasSelection && <label className="dz-field dz-field-check"><span className="check"><input type="checkbox" checked={onlySel} onChange={(e) => setOnlySel(e.target.checked)} /> Only what's selected</span></label>}
-        <label className="dz-field"><span>Weed border</span><div className="input-unit"><input type="number" step={0.125} value={weedIn} onChange={(e) => setWeedIn(parseFloat(e.target.value) || 0)} /><em>in</em></div><small className="muted">0 = no border</small></label>
-        <label className="dz-field dz-field-check"><span className="check"><input type="checkbox" checked={mirror} onChange={(e) => setMirror(e.target.checked)} /> Mirror (heat transfer / reverse-weeded window lettering)</span></label>
-        {panels.length > 1 && <label className="dz-field dz-field-check"><span className="check"><input type="checkbox" checked={hold} onChange={(e) => setHold(e.target.checked)} /> Hold each new color in the queue until it's loaded</span></label>}
-      </div>
-      <p className="muted small">{panels.length} job{panels.length !== 1 ? 's' : ''}: {panels.map((p) => p.name).join(', ') || '—'} · {ft.toFixed(1)} ft of cutting</p>
-    </Modal>
-  );
-}
-
 // ---------------- Print & Cut ----------------
 export function PrintCutDialog({ devices, doc, sceneFor, cutPaths, onClose, onSent, defaultName, onAddCut }) {
   const printers = devices.filter((d) => d.kind === 'printer');
@@ -196,6 +141,8 @@ export function PrintCutDialog({ devices, doc, sceneFor, cutPaths, onClose, onSe
   const [step, setStep] = useState('print');
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
+  const [useCode, setUseCode] = useState(recall('jobBarcode') !== 'off');
+  const [jobNo, setJobNo] = useState('');
   const marks = { margin: marginIn * MM, size: markIn * MM, thickness: titan ? 1 : 0.5 };
   const clear = marks.margin + marks.size + 2;
   const art = sceneFor(marks);
@@ -204,10 +151,18 @@ export function PrintCutDialog({ devices, doc, sceneFor, cutPaths, onClose, onSe
   const print = async () => {
     setErr(''); setBusy(true);
     try {
-      await api.design.print(printer.id, art, { name: `${name} (print)`, keepCutLines: printer.driver === 'flexi-hotfolder' });
-      remember('printer', printer.id);
+      let out = art, no = '';
+      if (useCode && cutPaths.length) {
+        no = await api.printcut.newJobNo();
+        const barcode = jobBarcode(doc.page, marks, no);
+        if (barcode) out = sceneFor({ ...marks, barcode }); else no = '';
+      }
+      await api.design.print(printer.id, out, { name: `${name} (print)`, keepCutLines: printer.driver === 'flexi-hotfolder' });
+      if (no) await api.printcut.saveJob(no, { name, sheetW: doc.page.w, sheetH: doc.page.h, cutPaths, marks });
+      setJobNo(no);
+      remember('printer', printer.id); remember('jobBarcode', useCode ? 'on' : 'off');
       setStep('cut');
-      onSent(`Printing “${name}” with registration marks on ${printer.name}`);
+      onSent(`Printing “${name}” with registration marks on ${printer.name}${no ? ` — job ${no}` : ''}`);
     } catch (e) { setErr(e.message); } finally { setBusy(false); }
   };
   const cut = async () => {
@@ -233,6 +188,8 @@ export function PrintCutDialog({ devices, doc, sceneFor, cutPaths, onClose, onSe
         <label className="dz-field"><span>Marks from the page edge</span><div className="input-unit"><input type="number" step={0.05} value={marginIn} onChange={(e) => setMarginIn(parseFloat(e.target.value) || 0)} /><em>in</em></div></label>
         <label className="dz-field"><span>Mark size</span><div className="input-unit"><input type="number" step={0.05} value={+markIn.toFixed(3)} onChange={(e) => setMarkIn(parseFloat(e.target.value) || 0)} /><em>in</em></div>{titan && <small className="muted">Titan: 26 mm marks, 1 mm thick — the same as Flexi prints</small>}</label>
       </div>
+      <label className="check"><input type="checkbox" checked={useCode} onChange={(e) => setUseCode(e.target.checked)} /> Print a job number and barcode beside the marks, and keep the cut under that number</label>
+      {jobNo && <p className="seg-note">Printed as <b>job {jobNo}</b>. Cut it now with button 2, or any time later: open the cutter's controls, and scan or type {jobNo}.</p>}
       {tooClose && <p className="warn-text">Some cut lines run into the mark area — keep art at least {(clear / MM).toFixed(2)}″ in from the page edges.</p>}
       <p className="muted small">The marks print in the page corners. After printing, load the print in the cutter, let it read the marks, then press Cut. Tip: set the page to the sheet or roll size you're printing on.</p>
     </Modal>

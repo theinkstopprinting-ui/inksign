@@ -4,7 +4,7 @@
 //  - cut lines in the CutContour spot color (what Flexi, ONYX, Caldera and InkSign's HP path read)
 //    or left off (cut: 'omit') when the print shouldn't carry them
 //  - optional print & cut registration marks around the page
-const { PDFDocument, PDFName, PDFNumber, PDFOperator, PDFDict } = require('pdf-lib');
+const { PDFDocument, PDFName, PDFNumber, PDFOperator, PDFDict, StandardFonts, rgb } = require('pdf-lib');
 const { markRects } = require('./printCutPdf');
 
 const PT = 72 / 25.4;
@@ -122,10 +122,17 @@ async function buildDesignPdf(scene, { cut = 'spot', title } = {}) {
   if (scene.marks && scene.marks.size > 0 && cut !== 'only') {
     ops.push(op('q'), op('rg', [n(0), n(0), n(0)]));
     for (const [x, y, w, h] of markRects(scene.w, scene.h, scene.marks)) ops.push(op('re', [X(x), n(H - (y + h) * PT), n(w * PT), n(h * PT)]), op('f'));
+    // job barcode beside the marks (see src/lib/jobBarcode.js)
+    for (const [x, y, w, h] of (scene.marks.barcode && scene.marks.barcode.bars) || []) ops.push(op('re', [X(x), n(H - (y + h) * PT), n(w * PT), n(h * PT)]), op('f'));
     ops.push(op('Q'));
   }
   // in chunks: spreading hundreds of thousands of operators at once overflows the call stack
   for (let i = 0; i < ops.length; i += 4000) page.pushOperators(...ops.slice(i, i + 4000));
+  const bc = scene.marks && cut !== 'only' ? scene.marks.barcode : null;
+  if (bc && bc.show && bc.text) {
+    const font = await doc.embedFont(StandardFonts.Helvetica);
+    page.drawText(String(bc.text), { x: bc.textX * PT, y: H - bc.textY * PT, size: bc.textMm * PT, font, color: rgb(0, 0, 0) });
+  }
   return { pdf: Buffer.from(await doc.save({ useObjectStreams: false })), cutCount };
 }
 

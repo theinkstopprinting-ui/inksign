@@ -7,7 +7,7 @@ import * as pdfjs from 'pdfjs-dist';
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import * as D from '../../lib/doc.js';
 import * as FX from '../../lib/docEffects.js';
-import { toScene, toSvg, cutGroups, cutPanels, cropScene } from '../../lib/docExport.js';
+import { toScene, toSvg, cutGroups, cropScene } from '../../lib/docExport.js';
 import PrintWindow from '../PrintWindow.jsx';
 import { pdfToObjects, asGroup } from '../../lib/pdfObjects.js';
 import { makeText, retext, toOutlines, changeCase, serialText } from '../../lib/docText.js';
@@ -22,7 +22,8 @@ import { SHAPES } from '../../lib/shapes.js';
 import { nest } from '../../lib/nest.js';
 import Canvas from './Canvas.jsx';
 import { PageProps, ObjectProps, FillStroke, ObjectList, SwatchBar, MM } from './Panels.jsx';
-import { ParamDialog, CutDialog, PrintCutDialog, JobInfo, Modal } from './Dialogs.jsx';
+import { ParamDialog, PrintCutDialog, JobInfo, Modal } from './Dialogs.jsx';
+import CutWindow from '../CutWindow.jsx';
 
 pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
 const api = window.inksign;
@@ -338,7 +339,15 @@ export default function Design({ devices, jobs = [], active, onJobsSent }) {
       ['Send backward', () => apply((d) => D.reorder(d, ids, 'backward')), 'Ctrl+[', !S(1)], ['Send to back', () => apply((d) => D.reorder(d, ids, 'back')), 'Ctrl+Shift+[', !S(1)], null,
       ['Align left', () => apply((d) => D.align(d, ids, 'left')), '', !S(1)], ['Align centers (horizontal)', () => apply((d) => D.align(d, ids, 'hcenter')), '', !S(1)], ['Align right', () => apply((d) => D.align(d, ids, 'right')), '', !S(1)],
       ['Align top', () => apply((d) => D.align(d, ids, 'top')), '', !S(1)], ['Align middles (vertical)', () => apply((d) => D.align(d, ids, 'vcenter')), '', !S(1)], ['Align bottom', () => apply((d) => D.align(d, ids, 'bottom')), '', !S(1)],
-      ['Center on page', () => apply((d) => D.align(D.align(d, ids, 'hcenter', true), ids, 'vcenter', true)), 'Ctrl+E', !S(1)], null,
+      ['Center on page', () => apply((d) => D.align(D.align(d, ids, 'hcenter', true), ids, 'vcenter', true)), 'Ctrl+E', !S(1)],
+      ['Fit to page…', () => PD('fit', 'Fit to page', [
+        { key: 'mode', label: 'Fit', type: 'select', options: [['auto', 'Whichever fits first'], ['width', 'To the page width'], ['height', 'To the page height'], ['stretch', 'Stretch to fill the page']], default: 'auto' },
+        { key: 'margin', label: 'Page margin', type: 'in', default: 6.35 },
+      ], (v) => apply((d) => D.fitToPage(d, ids, v.mode, v.margin))), '', !S(1)],
+      ['Fit page to selected…', () => PD('fitpage', 'Fit the page to what\'s selected', [{ key: 'pad', label: 'Padding around it', type: 'in', default: 0 }],
+        (v) => apply((d) => D.fitPageToSel(d, ids, v.pad))), '', !S(1)],
+      ['Scale by %…', () => PD('scalepct', 'Scale selected', [{ key: 'pct', label: 'Scale', type: 'num', default: 100, unit: '%' }],
+        (v) => { if (!(v.pct > 0)) throw new Error('Type a percentage above 0'); const b = D.selBounds(selObjs); apply((d) => D.scaleSel(d, ids, v.pct / 100, v.pct / 100, { x: b.cx, y: b.cy })); }), '', !S(1)], null,
       ['Distribute across', () => apply((d) => D.distribute(d, ids, 'h')), '', !S(3)], ['Distribute down', () => apply((d) => D.distribute(d, ids, 'v')), '', !S(3)],
       ['Spacing…', () => PD('spacing', 'Spacing', [{ key: 'axis', label: 'Direction', type: 'select', options: [['h', 'Across'], ['v', 'Down']], default: 'h' }, { key: 'gap', label: 'Space between', type: 'in', default: 6.35 }],
         (v) => apply((d) => D.distribute(d, ids, v.axis, v.gap))), '', !S(2)], null,
@@ -354,6 +363,11 @@ export default function Design({ devices, jobs = [], active, onJobsSent }) {
       ], (v) => fx((d) => D.stepRepeat(d, ids, { cols: Math.max(1, Math.round(v.cols)), rows: Math.max(1, Math.round(v.rows)), gapX: v.gapX, gapY: v.gapY }))), '', !S(1)],
       ['Fill the page with copies…', () => PD('fillpage', 'Fill the page', [{ key: 'gap', label: 'Space between', type: 'in', default: 6.35 }, { key: 'margin', label: 'Page margin', type: 'in', default: 6.35 }],
         (v) => fx((d) => D.fillPage(d, ids, v.gap, v.margin))), '', !S(1)],
+      ['Circle array…', () => PD('circle', 'Circle array', [
+        { key: 'count', label: 'Copies around', type: 'num', default: 8, unit: 'in all' }, { key: 'radius', label: 'Radius', type: 'in', default: 76.2 },
+        { key: 'start', label: 'Starting angle', type: 'num', default: 0, unit: '°' }, { key: 'sweep', label: 'Arc to fill', type: 'num', default: 360, unit: '°' },
+        { key: 'rotate', label: 'Turn each copy to face out', type: 'bool', default: true },
+      ], (v) => fx((d) => D.circleArray(d, ids, { count: Math.max(2, Math.round(v.count)), radius: v.radius, startDeg: v.start, sweepDeg: v.sweep, rotate: v.rotate }))), '', !S(1)],
       ['Auto serialize…', () => setDialog({ kind: 'serial' }), '', textObjs.length !== 1],
       ['Nest on the page', () => nestSel(), '', !S(2)],
     ],
@@ -585,7 +599,6 @@ export default function Design({ devices, jobs = [], active, onJobsSent }) {
     } catch (e) { flash(e.message); } finally { setBusy(''); }
   };
   // ---- output helpers ----
-  const groupsFor = (what, onlySel, o) => cutPanels(cutGroups(docRef.current, what, onlySel ? sel : null), o);
   const cutLines = doc.objects.filter((o) => o.cut && !o.hidden).flatMap(D.placedPaths);
 
   const setBox = (box, keepRatio) => apply((d) => D.setSelBox(d, sel, box, keepRatio));
@@ -741,7 +754,7 @@ export default function Design({ devices, jobs = [], active, onJobsSent }) {
         <PrintWindow devices={devices} jobs={jobs} source={{ scene: dialog.scene }} previewPdfBase64={dialog.preview} jobSize={{ w: dialog.scene.w, h: dialog.scene.h }}
           name={doc.name} hasCutLines={dialog.scene.items.some((i) => i.cut)} onClose={() => setDialog(null)} onSent={(t) => { flash(t); onJobsSent && onJobsSent(); }} />
       )}
-      {dialog?.kind === 'cut' && <CutDialog devices={devices} groupsFor={groupsFor} hasCutLines={cutLines.length > 0} hasSelection={sel.length > 0} defaultName={doc.name} onClose={() => setDialog(null)} onSent={(t) => { flash(t); onJobsSent && onJobsSent(); }} />}
+      {dialog?.kind === 'cut' && <CutWindow devices={devices} groupsFor={(what, onlySel) => cutGroups(docRef.current, what, onlySel ? sel : null)} hasCutLines={cutLines.length > 0} hasSelection={sel.length > 0} defaultName={doc.name} onClose={() => setDialog(null)} onSent={(m) => { flash(m); onJobsSent && onJobsSent(); }} />}
       {dialog?.kind === 'printcut' && (
         <PrintCutDialog devices={devices} doc={doc} sceneFor={(marks) => toScene(docRef.current, { marks })} cutPaths={cutLines} defaultName={doc.name}
           onClose={() => setDialog(null)} onSent={(t) => flash(t)}

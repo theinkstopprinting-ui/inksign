@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import BarcodeCut from './BarcodeCut.jsx';
 
 const api = window.inksign;
 const MM = 25.4;
@@ -67,6 +68,8 @@ export default function CutterControl({ cutter, jobs = [] }) {
           setMsg(`Cancelled ${r.cancelled} waiting job${r.cancelled === 1 ? '' : 's'}${r.spooled ? ` and cleared ${r.spooled} from Windows` : ''}.`);
         })}>Cancel waiting{waiting ? ` (${waiting})` : ''}</button>
       </div>
+      <div className="cc-head">Cut a printed job by its barcode number</div>
+      <BarcodeCut cutter={cutter} />
       {st.paused && <div className="seg-note">Queue paused — jobs to {cutter.name} wait until you resume.</div>}
       <div className="help">To stop a cut that's already running, press PAUSE on the cutter — it keeps cutting what it has already received.</div>
       {msg && <div className="studio-msg">{msg}</div>}

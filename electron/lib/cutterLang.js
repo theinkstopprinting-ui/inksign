@@ -71,7 +71,8 @@ function prepare(paths, cfg = {}) {
   const t = transformPaths(paths, cfg);
   const margin = Number(cfg.marginMm) || 0;
   // shiftX/shiftY: where the job starts — after the last job on the roll, or a start point set by jogging
-  const dx = margin + (Number(cfg.shiftX) || 0), dy = margin + (Number(cfg.shiftY) || 0);
+  // posXmm/posYmm: moved from there by hand in the Send to be Cut window
+  const dx = margin + (Number(cfg.shiftX) || 0) + (Number(cfg.posXmm) || 0), dy = margin + (Number(cfg.shiftY) || 0) + (Number(cfg.posYmm) || 0);
   const shifted = dx || dy ? t.map((p) => p.map(({ x, y }) => ({ x: x + dx, y: y + dy }))) : t;
   return addOvercut(shifted, cfg.overcutMm);
 }
@@ -185,6 +186,20 @@ function moveTo(x, y, cfg = {}) {
   return `IN;PA;PU${Math.round(x * upm)},${Math.round(y * upm)};`;
 }
 
+// Area Test (VinylMaster's name for it): the blade stays UP and runs once round the outside of the job,
+// exactly where the job will land, so you can see it fits on the vinyl before cutting.
+function areaTrace(paths, cfg = {}) {
+  const b = bounds(prepare(paths, { ...cfg, overcutMm: 0 }));
+  const corners = [[b.minX, b.minY], [b.maxX, b.minY], [b.maxX, b.maxY], [b.minX, b.maxY], [b.minX, b.minY]];
+  if (cfg.language === 'gpgl') {
+    const step = Number(cfg.gpglStepMm) || 0.1;
+    return corners.map(([x, y]) => `M${Math.round(x / step)},${Math.round(y / step)}\x03`).join('') + 'M0,0\x03';
+  }
+  const upm = Number(cfg.unitsPerMm) || 40;
+  const u = (v) => Math.round(v * upm);
+  return `IN;PA;${corners.map(([x, y]) => `PU${u(x)},${u(y)};`).join('')}PU0,0;`;
+}
+
 function generate(paths, cfg = {}) {
   if (cfg.keepOrigin && String(cfg.regCommands || '').trim()) return registeredJob(paths, cfg);
   return cfg.language === 'gpgl' ? toGPGL(paths, cfg) : toHPGL(paths, cfg);
@@ -204,4 +219,4 @@ function testPattern() {
   return [square, tri];
 }
 
-module.exports = { transformPaths, bounds, addOvercut, toHPGL, toGPGL, generate, registeredJob, jobExtent, moveTo, testPattern, unescapeCommands, MM_PER_IN };
+module.exports = { transformPaths, bounds, addOvercut, toHPGL, toGPGL, generate, registeredJob, jobExtent, moveTo, areaTrace, testPattern, unescapeCommands, MM_PER_IN };

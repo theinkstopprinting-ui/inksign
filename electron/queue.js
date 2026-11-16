@@ -99,12 +99,12 @@ async function pump(deviceId) {
           const ov = Array.isArray(data) ? {} : Object.fromEntries(Object.entries(data.overrides || {}).filter(([, v]) => v !== '' && v !== null && v !== undefined));
           // Where this job starts: a start point set by jogging, and/or right after the last job on the roll.
           const st = device.state || {};
-          const shift = ov.keepOrigin ? {} : {
+          const shift = ov.keepOrigin || ov.absolute ? {} : {
             shiftX: (Number(st.startX) || 0) + (st.continueRoll ? (Number(st.rollUsedMm) || 0) : 0),
             shiftY: Number(st.startY) || 0,
           };
           res = await drv.sendPaths({ ...device.config, ...ov, ...shift }, paths, job.name);
-          if (res.extentXmm != null && st.continueRoll) {
+          if (res.extentXmm != null && st.continueRoll && !ov.absolute) {
             const gap = Number(device.config.jobGapMm ?? 12.7) || 0;
             const used = res.extentXmm + gap - (Number(st.startX) || 0);
             store.setDeviceState(device.id, { rollUsedMm: Math.max(Number(st.rollUsedMm) || 0, used), lastJobEndMm: res.extentXmm });

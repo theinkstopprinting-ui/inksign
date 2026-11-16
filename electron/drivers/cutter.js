@@ -2,7 +2,7 @@
 const fs = require('fs');
 const path = require('path');
 const T = require('../transports');
-const { generate, testPattern, jobExtent, moveTo } = require('../lib/cutterLang');
+const { generate, testPattern, jobExtent, moveTo, areaTrace, bounds } = require('../lib/cutterLang');
 
 const fields = [
   { key: 'connection', label: 'Connected by', type: 'select', default: 'printer',
@@ -78,6 +78,14 @@ async function sendPaths(cfg, paths, jobName) {
   return { message: `Sent ${data.length.toLocaleString()} bytes (${cfg.language === 'gpgl' ? 'GP-GL' : 'HP-GL'})`, extentXmm: cfg.keepOrigin ? null : jobExtent(paths, cfg) };
 }
 
+// Blade up, once round the outside of the job where it will land (nothing is cut).
+async function areaTest(cfg, paths) {
+  const data = Buffer.from(areaTrace(paths, cfg), 'latin1');
+  await T.sendViaConnection(cfg, data, 'InkSign area test');
+  const b = bounds(paths);
+  return { message: `Blade-up run round ${((b.maxX - b.minX) / 25.4).toFixed(1)}″ × ${((b.maxY - b.minY) / 25.4).toFixed(1)}″ sent` };
+}
+
 // Blade up, move to x,y mm from the origin set on the cutter.
 async function jog(cfg, x, y) {
   const data = Buffer.from(moveTo(x, y, cfg), 'latin1');
@@ -106,5 +114,5 @@ async function sendFile(cfg, filePath, { jobName } = {}) {
 
 module.exports = {
   id: 'cutter', name: 'Vinyl / contour cutter (HP-GL / GP-GL)', kind: 'cutter',
-  fields, fileTypes: PASSTHROUGH, missing, checkStatus, sendTest, sendFile, sendPaths, jog, cancelSpool,
+  fields, fileTypes: PASSTHROUGH, missing, checkStatus, sendTest, sendFile, sendPaths, jog, cancelSpool, areaTest,
 };

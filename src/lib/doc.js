@@ -314,6 +314,51 @@ export function fillPage(doc, ids, gap = 6.35, margin = 6.35) {
   return stepRepeat(start, ids, { cols, rows, gapX: gap, gapY: gap });
 }
 
+/** Circle array (VinylMaster's Arrange > Circle Array): copies round a circle; the original is the first one */
+export function circleArray(doc, ids, { count = 8, radius = 76.2, startDeg = 0, sweepDeg = 360, rotate = true }) {
+  const b = selBounds(doc.objects.filter((o) => ids.includes(o.id)));
+  if (!b || count < 2) return { doc, ids };
+  const full = Math.abs(sweepDeg) >= 360;
+  const step = full ? 360 / count : sweepDeg / (count - 1);
+  const center = { x: b.cx, y: b.cy + radius };
+  let out = startDeg ? rotateSel(doc, ids, startDeg, center) : doc;
+  if (startDeg && !rotate) { const nb = selBounds(out.objects.filter((o) => ids.includes(o.id))); out = rotateSel(out, ids, -startDeg, { x: nb.cx, y: nb.cy }); }
+  const all = [...ids];
+  for (let k = 1; k < count; k++) {
+    const d = duplicate(out, ids, 0, 0);
+    let next = rotateSel(d.doc, d.ids, step * k, center);
+    if (!rotate) { const nb = selBounds(next.objects.filter((o) => d.ids.includes(o.id))); next = rotateSel(next, d.ids, -step * k, { x: nb.cx, y: nb.cy }); }
+    out = next;
+    all.push(...d.ids);
+  }
+  return { doc: out, ids: all };
+}
+
+/** Fit the selection (as one piece) to the page: 'auto' whichever fits first, 'width', 'height', or 'stretch' both */
+export function fitToPage(doc, ids, mode = 'auto', margin = 0) {
+  const b = selBounds(doc.objects.filter((o) => ids.includes(o.id)));
+  if (!b || !b.w || !b.h) return doc;
+  const aw = Math.max(1, doc.page.w - 2 * margin), ah = Math.max(1, doc.page.h - 2 * margin);
+  let sx = aw / b.w, sy = ah / b.h;
+  if (mode === 'auto') sx = sy = Math.min(sx, sy);
+  else if (mode === 'width') sy = sx;
+  else if (mode === 'height') sx = sy;
+  const out = scaleSel(doc, ids, sx, sy, { x: b.minX, y: b.minY });
+  const nb = selBounds(out.objects.filter((o) => ids.includes(o.id)));
+  return move(out, ids, doc.page.w / 2 - nb.cx, doc.page.h / 2 - nb.cy);
+}
+
+/** Make the page the size of the selection (plus padding); everything moves with it */
+export function fitPageToSel(doc, ids, pad = 0) {
+  const b = selBounds(doc.objects.filter((o) => ids.includes(o.id)));
+  if (!b) return doc;
+  const dx = pad - b.minX, dy = pad - b.minY;
+  return {
+    ...doc, page: { ...doc.page, w: b.w + 2 * pad, h: b.h + 2 * pad },
+    objects: doc.objects.map((o) => ({ ...o, x: o.x + dx, y: o.y + dy })),
+  };
+}
+
 // ---- history ----
 export function history(limit = 100) {
   const past = [], future = [];

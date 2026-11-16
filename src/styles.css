@@ -715,3 +715,42 @@ details.adv[open] > summary { margin-bottom: 4px; }
 .q-lane.idle { padding: 10px 14px; }
 .q-lane.idle .q-lane-head { margin-bottom: 0; }
 .q-idle { font-size: 12px; color: var(--muted); margin: 6px 0 0 20px; }
+
+/* ---- Send to be Cut window ---- */
+.modal.cw { width: min(1120px, 96vw); max-width: none; max-height: 94vh; display: flex; flex-direction: column; }
+.cw-body { display: grid; grid-template-columns: minmax(380px, 460px) minmax(0, 1fr); gap: 16px; padding: 14px 18px; overflow: hidden; min-height: 0; flex: 1; }
+.cw-left { display: flex; flex-direction: column; min-height: 0; }
+.cw-tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--line); margin-bottom: 10px; }
+.cw-tabs button { background: none; border: 0; border-bottom: 2px solid transparent; color: var(--muted); padding: 7px 10px; cursor: pointer; font-weight: 600; }
+.cw-tabs button.on { color: var(--text); border-bottom-color: var(--accent); }
+.cw-pane { overflow-y: auto; padding-right: 6px; display: flex; flex-direction: column; gap: 10px; }
+.cw-pane fieldset { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; margin: 0; display: flex; flex-direction: column; gap: 8px; }
+.cw-pane legend { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); padding: 0 6px; }
+.cw-checks { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 12px; }
+.cw-newpreset { flex: 1; min-width: 0; }
+.cw-right { display: flex; flex-direction: column; gap: 8px; min-width: 0; min-height: 0; }
+.cw-pager { display: flex; align-items: center; justify-content: center; gap: 10px; font-weight: 600; }
+.cw-pager span { display: flex; align-items: center; gap: 7px; min-width: 200px; justify-content: center; }
+.cw-pager i { width: 14px; height: 14px; border-radius: 3px; border: 1px solid var(--line); display: inline-block; }
+.cw-stage { flex: 1; min-height: 320px; background: #1b1f27; border: 1px solid var(--line); border-radius: 10px; display: grid; place-items: center; overflow: hidden; }
+.cw-stage { position: relative; }
+.cw-svg { position: absolute; inset: 10px; width: calc(100% - 20px); height: calc(100% - 20px); }
+.dz-form.cw-one { grid-template-columns: 1fr; }
+.cw-newpreset { background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 5px 8px; color: var(--text); }
+.cw-empty { color: var(--muted); }
+.cw-stats { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12px; color: var(--muted); }
+.cw-stats b { color: var(--text); }
+.modal.cw .modal-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.modal.cw .modal-foot > span { flex: 1; min-width: 0; }
+/* ---- Cut by barcode number ---- */
+.cc-head { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); font-weight: 600; margin-top: 10px; }
+.bc-cut { display: flex; flex-direction: column; gap: 6px; }
+.bc-cut.compact { background: var(--panel2); border: 1px solid var(--line); border-radius: 10px; padding: 8px; margin-bottom: 10px; }
+.bc-row { display: flex; align-items: center; gap: 6px; }
+.bc-row input { flex: 1; min-width: 0; font-variant-numeric: tabular-nums; letter-spacing: .06em; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 6px 9px; color: var(--text); }
+.bc-ico { font-size: 10px; letter-spacing: -1px; color: var(--muted); }
+.bc-msg { font-size: 12px; color: var(--ok); }
+.bc-msg.error { color: var(--err); }
+.bc-list { display: flex; flex-direction: column; gap: 4px; max-height: 220px; overflow-y: auto; }
+.bc-item { display: grid; grid-template-columns: auto minmax(60px, 1fr) auto auto auto; gap: 8px; align-items: center; font-size: 12px; }
+.bc-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

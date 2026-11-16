@@ -418,7 +418,7 @@ function registerIpc() {
   // One cut job per frame (a sheet is one frame; a long roll has several segments, each with its own
   // four marks). The first segment goes straight to the cutter; the rest wait in the queue until you've
   // fed to that segment and scanned its marks, then press Release.
-  ipcMain.handle('printcut:cut', (_e, deviceId, job) => {
+  const registeredCut = (deviceId, job) => {
     const d = store.getDevice(deviceId);
     if (!d || d.kind !== 'cutter') throw new Error('Pick a cutter');
     if (!job.marks || !(job.marks.size > 0)) throw new Error('This layout has no registration marks to cut from.');
@@ -450,6 +450,46 @@ function registerIpc() {
     });
     if (!jobs.length) throw new Error('Nothing to cut.');
     return jobs;
+  };
+  ipcMain.handle('printcut:cut', (_e, deviceId, job) => registeredCut(deviceId, job));
+
+  // ---- Barcode jobs (VinylMaster's Barcode Controller, InkSign's way) ----
+  // A print & cut job can carry a job number, printed as a barcode beside its marks. The cut lines are kept
+  // under that number, so at the cutter — today or next week — you scan or type the number and the right
+  // cut comes up, whatever order the prints are loaded in.
+  const jobDir = () => { const d = path.join(app.getPath('userData'), 'barcode-jobs'); fs.mkdirSync(d, { recursive: true }); return d; };
+  const jobFile = (no) => path.join(jobDir(), `${String(no).replace(/\D/g, '').padStart(6, '0')}.json`);
+  ipcMain.handle('printcut:newJobNo', () => {
+    const next = Math.max(100001, Number(store.getSettings().nextCutJobNo) || 100001);
+    store.saveSettings({ nextCutJobNo: next + 1 });
+    return String(next);
+  });
+  ipcMain.handle('printcut:saveJob', (_e, no, job) => {
+    fs.writeFileSync(jobFile(no), JSON.stringify({ no: String(no), savedAt: Date.now(), cuts: 0, ...job }));
+    return String(no);
+  });
+  ipcMain.handle('printcut:savedJobs', () => fs.readdirSync(jobDir()).filter((f) => /^\d+\.json$/.test(f)).map((f) => {
+    try { const j = JSON.parse(fs.readFileSync(path.join(jobDir(), f), 'utf8')); return { no: j.no, name: j.name, savedAt: j.savedAt, cuts: j.cuts || 0, lastCutAt: j.lastCutAt || null, wIn: j.sheetW / 25.4, hIn: j.sheetH / 25.4 }; } catch { return null; }
+  }).filter(Boolean).sort((a, b) => b.savedAt - a.savedAt).slice(0, 200));
+  ipcMain.handle('printcut:cutSaved', (_e, deviceId, no, overrides) => {
+    const digits = String(no || '').replace(/\D/g, '');
+    if (!digits) throw new Error('Type or scan the job number printed beside the barcode');
+    const f = jobFile(digits);
+    if (!fs.existsSync(f)) throw new Error(`No saved cut for job ${digits}. It may have been printed from another computer, or before barcodes were switched on.`);
+    const job = JSON.parse(fs.readFileSync(f, 'utf8'));
+    const jobs = registeredCut(deviceId, { ...job, name: `${job.name} #${job.no}`, overrides: { ...(job.overrides || {}), ...(overrides || {}) } });
+    fs.writeFileSync(f, JSON.stringify({ ...job, cuts: (job.cuts || 0) + 1, lastCutAt: Date.now() }));
+    return { name: job.name, no: job.no, jobs: jobs.length };
+  });
+  ipcMain.handle('printcut:deleteSaved', (_e, no) => { fs.rmSync(jobFile(no), { force: true }); });
+
+  // Area Test: blade up, once round where the job will land (same start point as the real cut)
+  ipcMain.handle('cutter:areaTest', async (_e, id, paths, overrides) => {
+    const d = cutterOf(id);
+    const ov = Object.fromEntries(Object.entries(overrides || {}).filter(([, v]) => v !== '' && v !== null && v !== undefined));
+    const st = d.state || {};
+    const shift = ov.absolute ? {} : { shiftX: (Number(st.startX) || 0) + (st.continueRoll ? (Number(st.rollUsedMm) || 0) : 0), shiftY: Number(st.startY) || 0 };
+    return drivers.get(d.driver).areaTest({ ...d.config, ...ov, ...shift }, paths);
   });
   ipcMain.handle('printcut:savePdf', async (_e, job) => {
     const r = await dialog.showSaveDialog(win, { title: 'Save print file', defaultPath: `${safe(job.name)}.pdf`, filters: [{ name: 'PDF', extensions: ['pdf'] }] });

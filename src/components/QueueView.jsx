@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import Icon from './shell/Icon.jsx';
+import BarcodeCut from './BarcodeCut.jsx';
 
 // Job queue, one lane per machine: what's being sent now (with its picture, progress and Stop), what's
 // waiting (reorder, move to another machine of the same kind, release, cancel) and what's finished
@@ -139,7 +140,7 @@ function Lane({ device, name, jobs, devices, status, live, reload, onErr, wide }
   const state = live?.state || (status?.state === 'ok' ? 'ok' : status?.state === 'error' ? 'offline' : status?.state || '');
   const text = live ? live.text : status?.message || '';
   const wake = run(async () => { setWaking(true); try { await api.print.wake(device.id); } finally { setWaking(false); } }, onErr);
-  const idle = !jobs.length && !paused && !wide;
+  const idle = !jobs.length && !paused && !wide && !(device?.kind === 'cutter' && String(device.config?.regCommands || '').trim());
 
   return (
     <section className={`q-lane ${wide ? 'wide' : ''} ${idle ? 'idle' : ''}`}>
@@ -162,6 +163,7 @@ function Lane({ device, name, jobs, devices, status, live, reload, onErr, wide }
         </div>
       </header>
       {paused && <div className="q-paused">Queue paused — waiting jobs stay here until you press Resume.</div>}
+      {device?.kind === 'cutter' && String(device.config?.regCommands || '').trim() && <BarcodeCut cutter={device} compact />}
       {idle ? <div className="q-idle">No jobs.</div> : (<>
 
       {sending.map((j) => <NowCard key={j.id} job={j} device={device} onErr={onErr} />)}
