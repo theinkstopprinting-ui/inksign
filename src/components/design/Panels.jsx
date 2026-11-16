@@ -100,7 +100,7 @@ function ColorMixer({ color, onChange, label }) {
 }
 
 // ---------------- Properties (DesignCentral) ----------------
-const PAGE_PRESETS = [
+export const PAGE_PRESETS = [
   ['Letter 8.5×11', 8.5, 11], ['Tabloid 11×17', 11, 17], ['12×18', 12, 18], ['18×24', 18, 24], ['24×36', 24, 36], ['Arch D 24×36', 24, 36],
   ['Yard sign 24×18', 24, 18], ['Banner 2×4 ft', 48, 24], ['Banner 3×6 ft', 72, 36], ['Banner 3×8 ft', 96, 36], ['4×8 sheet', 96, 48], ['Vinyl roll 15"', 48, 15], ['Vinyl roll 24"', 48, 24],
 ];

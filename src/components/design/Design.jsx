@@ -1,6 +1,7 @@
-// Design: InkSign's layout and design workspace, modeled on Flexi's. A page with shapes, text and
-// pictures; Flexi-style menus (File, Edit, Arrange, Text, Effects, View); tools on the left; property
-// panels on the right; swatches along the bottom. Opens and edits PDF, AI, EPS, SVG, DXF and pictures;
+// Design: InkSign's layout and design workspace, laid out like VinylMaster DSR: the same menus (File,
+// Edit, View, Layout, Arrange, Objects, Effects, Images, Text, Curves, Colors, Tools, Window, Help), a
+// main icon toolbar, a page / selection bar, design tabs, a two-column toolbox on the left, the color
+// palette down the right edge and view switches along the bottom. Opens and edits PDF, AI, EPS, SVG, DXF and pictures;
 // prints (HP Latex direct, Xerox, Flexi hot folder), cuts, and does print & cut with marks.
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import * as pdfjs from 'pdfjs-dist';
@@ -21,7 +22,8 @@ import { simplify, ENVELOPES } from '../../lib/design.js';
 import { SHAPES } from '../../lib/shapes.js';
 import { nest } from '../../lib/nest.js';
 import Canvas from './Canvas.jsx';
-import { PageProps, ObjectProps, FillStroke, ObjectList, SwatchBar, MM } from './Panels.jsx';
+import { PageProps, ObjectProps, FillStroke, ObjectList, SIGN_SWATCHES, PAGE_PRESETS, MM } from './Panels.jsx';
+import Icon from './icons.jsx';
 import { ParamDialog, PrintCutDialog, JobInfo, Modal } from './Dialogs.jsx';
 import CutWindow from '../CutWindow.jsx';
 
@@ -32,18 +34,36 @@ const OPT_KEY = 'inksign.dz.view';
 const loadJson = (k, d) => { try { return JSON.parse(window.localStorage.getItem(k) || 'null') ?? d; } catch { return d; } };
 const saveJson = (k, v) => { try { window.localStorage.setItem(k, JSON.stringify(v)); } catch { /* not saved */ } };
 
+// more vinyl / print colors for the palette down the right edge (after the sign colors)
+const MORE_SWATCHES = [
+  ['#ed1c24', 'Process red'], ['#8b0000', 'Burgundy'], ['#f7941d', 'Light orange'], ['#fdb913', 'Golden yellow'], ['#fff9ae', 'Cream'], ['#c4d600', 'Lime tree'],
+  ['#009b77', 'Teal'], ['#40e0d0', 'Turquoise'], ['#00ffff', 'Cyan'], ['#6cace4', 'Ice blue'], ['#1b3f94', 'Royal blue'], ['#2e1a47', 'Deep violet'],
+  ['#9b59b6', 'Lavender'], ['#ff00ff', 'Magenta'], ['#f8a3bc', 'Soft pink'], ['#c68642', 'Tan'], ['#4a2c17', 'Dark brown'], ['#f5f5dc', 'Beige'],
+  ['#808080', 'Middle gray'], ['#2b2b2b', 'Charcoal'],
+];
+const UNITS = { in: { k: 25.4, dp: 3, step: 0.125, mark: '″' }, mm: { k: 1, dp: 1, step: 1, mark: ' mm' }, cm: { k: 10, dp: 2, step: 0.1, mark: ' cm' } };
+const SHORTCUTS = [
+  ['Ctrl+N / O / S', 'New, open, save'], ['Ctrl+I', 'Import artwork'], ['Ctrl+P', 'RIP and Print'], ['Ctrl+L', 'Send to be Cut'],
+  ['Ctrl+Z / Y', 'Undo, redo'], ['Ctrl+X / C / V', 'Cut, copy, paste'], ['Ctrl+D', 'Duplicate'], ['Del', 'Delete'], ['Ctrl+A', 'Select all'],
+  ['Ctrl+G / Shift+G', 'Group, ungroup'], ['Ctrl+K / Shift+K', 'Compound, break apart'], ['Ctrl+W', 'Weld'], ['Ctrl+Q', 'Convert text to curves'],
+  ['Ctrl+E', 'Center on the page'], ['Ctrl+M', 'Mirror'], ['Ctrl+] / [', 'Forward, backward (Shift: front, back)'],
+  ['Ctrl+0 / 1 / 2', 'Fit page, actual size, zoom to selection'], ['Ctrl+= / -', 'Zoom in, out'], ['Ctrl+Shift+W', 'Wireframe'],
+  ['Arrows', 'Nudge (Shift: 10 × as far)'], ['V N T R E L P I Z H', 'Select, nodes, text, rectangle, ellipse, line, pen, eyedropper, zoom, pan'],
+  ['Space', 'Hold to pan'], ['Enter', 'Edit the selected text'], ['Esc', 'Select nothing'],
+];
+
 const TOOLS = [
-  ['select', '➤', 'Select (V) — click, drag, Shift-click to add; Ctrl-drag copies'],
-  ['node', '◇', 'Edit nodes (N)'],
-  ['text', 'T', 'Text (T) — click where the text goes'],
-  ['rect', '▭', 'Rectangle (R) — Shift for a square, Alt from the center'],
-  ['ellipse', '◯', 'Ellipse (E) — Shift for a circle'],
-  ['shape', '★', 'Shapes — star, polygon, arrow, heart…'],
-  ['line', '╱', 'Line (L) — Shift keeps it straight'],
-  ['pen', '✒', 'Pen / Bézier (P)'],
-  ['eyedropper', '⌖', 'Eyedropper (I) — copy a shape\'s colors to the selection'],
-  ['zoom', '🔍', 'Zoom (Z) — click to zoom in, Alt-click out, drag a box'],
-  ['pan', '✋', 'Pan (H) — or hold Space'],
+  ['select', 'select', 'Select (V) — click, drag, Shift-click to add; Ctrl-drag copies'],
+  ['node', 'node', 'Edit nodes (N)'],
+  ['text', 'text', 'Text (T) — click where the text goes'],
+  ['rect', 'rect', 'Rectangle (R) — Shift for a square, Alt from the center'],
+  ['ellipse', 'ellipse', 'Ellipse (E) — Shift for a circle'],
+  ['shape', 'star', 'Shapes — star, polygon, arrow, heart…'],
+  ['line', 'line', 'Line (L) — Shift keeps it straight'],
+  ['pen', 'pen', 'Pen / Bézier (P)'],
+  ['eyedropper', 'eyedropper', 'Eyedropper (I) — copy a shape\'s colors to the selection'],
+  ['zoom', 'zoom', 'Zoom (Z) — click to zoom in, Alt-click out, drag a box'],
+  ['pan', 'pan', 'Pan (H) — or hold Space'],
 ];
 const KEY_TOOLS = { v: 'select', n: 'node', t: 'text', r: 'rect', e: 'ellipse', l: 'line', p: 'pen', i: 'eyedropper', z: 'zoom', h: 'pan' };
 
@@ -101,13 +121,26 @@ export default function Design({ devices, jobs = [], active, onJobsSent }) {
   const lastKey = useRef({ key: null, t: 0 });
   const clip = useRef(null);
   const [, force] = useState(0);
+  // design tabs: the one on screen lives in the state above; the others wait in `parked`
+  const [tabs, setTabs] = useState([{ id: 1 }]);
+  const [tabId, setTabId] = useState(1);
+  const tabSeq = useRef(1);
+  const parked = useRef(new Map());
+  const st = useRef({});
+  st.current = { tabId, filePath, dirty, view, sel, tabs };
+  const unit = UNITS[opts.units] ? opts.units : 'in';
+  const U = UNITS[unit];
+  const len = (mm) => `${+(mm / U.k).toFixed(unit === 'in' ? 2 : U.dp)}${U.mark}`;
 
-  useEffect(() => saveJson(OPT_KEY, { showGrid: opts.showGrid, gridIn: opts.gridIn, snapGrid: opts.snapGrid, snapGuides: opts.snapGuides, snapObjects: opts.snapObjects }), [opts]);
+  useEffect(() => saveJson(OPT_KEY, { showGrid: opts.showGrid, gridIn: opts.gridIn, snapGrid: opts.snapGrid, snapGuides: opts.snapGuides, snapObjects: opts.snapObjects, showPage: opts.showPage, units: opts.units, nudgeIn: opts.nudgeIn }), [opts]);
   useEffect(() => saveJson(SW_KEY, swatches), [swatches]);
   useEffect(() => {
     api.fonts.list().then((f) => setFonts(f || [])).catch(() => setFonts([]));
   }, []);
   const defaultFont = useMemo(() => fonts.find((x) => /^arial black$/i.test(x.name)) || fonts.find((x) => /^arial bold$/i.test(x.name)) || fonts.find((x) => /^arial$/i.test(x.name)) || fonts[0], [fonts]);
+  // the first time the Design page is shown, fit the page in the window
+  const fitted = useRef(false);
+  useEffect(() => { if (active && !fitted.current) { fitted.current = true; setTimeout(() => canvas.current?.fit(), 60); } }, [active]);
   const flash = (t) => { setMsg(t); if (t) setTimeout(() => setMsg((m) => (m === t ? '' : m)), 6000); };
 
   // ---- history & changes ----
@@ -134,6 +167,41 @@ export default function Design({ devices, jobs = [], active, onJobsSent }) {
   };
   const undo = () => { const p = hist.current.undo(docRef.current); if (p) { live(p); setSel((s) => s.filter((id) => p.objects.some((o) => o.id === id))); force((n) => n + 1); } };
   const redo = () => { const p = hist.current.redo(docRef.current); if (p) { live(p); force((n) => n + 1); } };
+
+  // ---- design tabs ----
+  const blank = () => D.newDoc({ widthIn: docRef.current.page.w / MM, heightIn: docRef.current.page.h / MM });
+  const isEmpty = () => !docRef.current.objects.length && !st.current.dirty;
+  const show = (id, s) => {
+    hist.current = s.hist || D.history(120);
+    live(s.doc); setSel(s.sel || []); setFilePath(s.filePath || null); setDirty(!!s.dirty); setTabId(id); setTextEdit(null);
+    if (s.view) setView(s.view); else setTimeout(() => canvas.current?.fit(), 30);
+    force((n) => n + 1);
+  };
+  const park = () => { const c = st.current; parked.current.set(c.tabId, { doc: docRef.current, filePath: c.filePath, dirty: c.dirty, hist: hist.current, view: c.view, sel: c.sel }); };
+  const addTab = (d, path = null, isDirty = false) => {
+    park();
+    const id = ++tabSeq.current;
+    setTabs((t) => [...t, { id }]);
+    show(id, { doc: d, filePath: path, dirty: isDirty });
+  };
+  const switchTab = (id) => {
+    if (id === st.current.tabId || !parked.current.has(id)) return;
+    park();
+    const s = parked.current.get(id);
+    parked.current.delete(id);
+    show(id, s);
+  };
+  const closeTab = (id) => {
+    const cur = id === st.current.tabId;
+    const s = cur ? { dirty: st.current.dirty, doc: docRef.current } : parked.current.get(id);
+    if (!s) return;
+    if (s.dirty && !window.confirm(`Close “${s.doc.name}” without saving it?`)) return;
+    const list = st.current.tabs;
+    if (list.length === 1) { show(id, { doc: blank() }); setWelcome(true); return; }
+    const i = list.findIndex((t) => t.id === id);
+    setTabs(list.filter((t) => t.id !== id));
+    if (cur) { const n = list[i + 1] || list[i - 1]; const ns = parked.current.get(n.id); parked.current.delete(n.id); show(n.id, ns); } else parked.current.delete(id);
+  };
 
   const selObjs = useMemo(() => doc.objects.filter((o) => sel.includes(o.id)), [doc, sel]);
   const stats = useMemo(() => D.jobStats(doc), [doc]);
@@ -222,9 +290,9 @@ export default function Design({ devices, jobs = [], active, onJobsSent }) {
             const r = await importPdfFile(f);
             if (asNewDoc && files.length === 1) {
               const nd = { ...D.newDoc({ name: f.name }), page: { w: r.pageSize.w, h: r.pageSize.h, color: '#ffffff' } };
-              hist.current.push(docRef.current);
               const objs = asGroup(r.objs);
-              live({ ...nd, objects: objs }); setSel(objs.map((o) => o.id)); setFilePath(null); setDirty(true);
+              if (isEmpty()) { hist.current = D.history(120); live({ ...nd, objects: objs }); setFilePath(null); } else addTab({ ...nd, objects: objs });
+              setSel(objs.map((o) => o.id)); setDirty(true); setWelcome(false);
               setTimeout(() => canvas.current?.fit(), 30);
             } else addImported(r.objs, f.name, { center: true });
             if (r.notes.length) flash(`${f.name}: ${r.notes.join(' · ')}`);
@@ -240,19 +308,18 @@ export default function Design({ devices, jobs = [], active, onJobsSent }) {
   };
 
   // ---- files ----
-  const confirmLose = () => !dirty || window.confirm('Discard the changes to this design?');
-  const newDoc = () => { if (!confirmLose()) return; hist.current = D.history(120); live(D.newDoc({ widthIn: doc.page.w / MM, heightIn: doc.page.h / MM })); setSel([]); setFilePath(null); setDirty(false); setWelcome(true); };
+  // a new or opened design gets its own tab, so nothing on screen is ever thrown away
+  const newDoc = () => { if (!isEmpty()) addTab(blank()); setWelcome(true); };
   const save = async () => {
     const p = await api.files.saveJob(doc.name, { kind: 'inksign-design', version: 1, doc });
     if (p) { setFilePath(p); setDirty(false); flash(`Saved ${p}`); }
   };
   const open = async () => {
-    if (!confirmLose()) return;
     const r = await api.files.openJob();
     if (!r) return;
     if (r.data?.kind !== 'inksign-design' || !r.data.doc) { flash('That .inksign file is a Cut Studio job — open it in Vinyl (Cut Studio).'); return; }
-    hist.current = D.history(120);
-    live(r.data.doc); setSel([]); setFilePath(r.path); setDirty(false);
+    if (isEmpty()) { hist.current = D.history(120); live(r.data.doc); setSel([]); setFilePath(r.path); setDirty(false); } else addTab(r.data.doc, r.path);
+    setWelcome(false);
     setTimeout(() => canvas.current?.fit(), 30);
   };
   const exportAs = async (fmt) => {
@@ -314,10 +381,10 @@ export default function Design({ devices, jobs = [], active, onJobsSent }) {
   const PD = (id, title, fields, onOk, extra = {}) => setDialog({ kind: 'param', id, title, fields, onOk, ...extra });
   const textObjs = selObjs.filter((o) => o.type === 'text');
 
-  const menus = {
+  const base = {
     File: [
       ['New', newDoc, 'Ctrl+N'], ['Open…', open, 'Ctrl+O'], ['Save…', save, 'Ctrl+S'], null,
-      ['Import…', () => doImport(false), 'Ctrl+I'], ['Open PDF / AI / EPS as a new design…', () => { if (confirmLose()) doImport(true); }], null,
+      ['Import…', () => doImport(false), 'Ctrl+I'], ['Open PDF / AI / EPS as a new design…', () => doImport(true)], null,
       ['Export PDF…', () => exportAs('pdf')], ['Export EPS…', () => exportAs('eps')], ['Export SVG…', () => exportAs('svg')], null,
       ['Document setup…', () => { setSel([]); setTab('props'); }],
       ['RIP and Print…', () => openPrint('art'), 'Ctrl+P'], ['RIP and Print the whole page…', () => openPrint('page')], ['Cut / Plot…', () => setDialog({ kind: 'cut' }), 'Ctrl+L'], ['Print & Cut…', () => setDialog({ kind: 'printcut' })], null,
@@ -441,6 +508,88 @@ export default function Design({ devices, jobs = [], active, onJobsSent }) {
       ['Clear guides', () => apply((d) => ({ ...d, guides: { x: [], y: [] } }))],
     ],
   };
+  // ---- the menu bar, in VinylMaster's order; `pick` takes commands from the set above by name ----
+  const pick = (m, ...names) => names.map((n) => {
+    if (n === null) return null;
+    const it = base[m].find((x) => x && x[0].replace(/^✓ /, '').startsWith(n));
+    if (!it) console.warn(`Design menu: no "${n}" in ${m}`);
+    return it;
+  }).filter((x) => x !== undefined);
+  const check = (on, label) => `${on ? '✓ ' : ''}${label}`;
+  const pic = selObjs.length === 1 && selObjs[0].type === 'image' ? selObjs[0] : null;
+  const sendCut = ['Send to be Cut…', () => setDialog({ kind: 'cut' }), 'Ctrl+L'];
+  const wizard = ['Contour Cutting Wizard (Print & Cut)…', () => setDialog({ kind: 'printcut' })];
+  const swapPage = () => apply((d) => ({ ...d, page: { ...d.page, w: d.page.h, h: d.page.w } }));
+  const pageSetup = () => PD('pagesetup', 'Page setup', [
+    { key: 'w', label: 'Width', type: 'in', default: doc.page.w }, { key: 'h', label: 'Height', type: 'in', default: doc.page.h },
+    { key: 'color', label: 'Page (material) color', type: 'color', default: doc.page.color || '#ffffff' },
+  ], (v) => { if (!(v.w >= 5 && v.h >= 5)) throw new Error('The page needs a width and a height'); apply((d) => ({ ...d, page: { ...d.page, w: v.w, h: v.h, color: v.color } })); setTimeout(() => canvas.current?.fit(), 30); });
+  const nudgeDlg = () => PD('nudge', 'Nudge distance', [{ key: 'n', label: 'Each arrow key press moves', type: 'in', default: (opts.nudgeIn || 0.1) * MM, step: 0.01, help: 'Hold Shift to move 10 × as far' }],
+    (v) => { if (!(v.n > 0)) throw new Error('Type a distance above 0'); setOpts((o) => ({ ...o, nudgeIn: v.n / MM })); });
+  const menus = {
+    File: [
+      ...pick('File', 'New', 'Open…', 'Save…'), ['Close this design', () => closeTab(tabId)], null,
+      ...pick('File', 'Import…', 'Open PDF', null, 'Export PDF', 'Export EPS', 'Export SVG', null),
+      sendCut, wizard, ...pick('File', 'RIP and Print…', 'RIP and Print the whole'), null, ...pick('File', 'Job info'),
+    ],
+    Edit: base.Edit,
+    View: [
+      ...pick('View', 'Fit page', 'Zoom to selection', 'Actual size', 'Zoom in', 'Zoom out', null, 'Wireframe'),
+      [check(opts.showPage !== false, 'Show the page'), () => setOpts((o) => ({ ...o, showPage: o.showPage === false }))],
+      ...pick('View', 'Show grid', null, 'Snap to grid', 'Snap to guides', 'Snap to objects'), null,
+      ...Object.keys(UNITS).map((u) => [check(unit === u, `Units: ${u === 'in' ? 'inches' : u === 'mm' ? 'millimeters' : 'centimeters'}`), () => setOpts((o) => ({ ...o, units: u }))]),
+    ],
+    Layout: [
+      ['Page setup…', pageSetup], ['Switch page orientation', swapPage], ...pick('Arrange', 'Fit page to selected'), null,
+      ...pick('View', 'Grid spacing', 'Add guide'),
+      ['Guides through the page center', () => apply((d) => ({ ...d, guides: { x: [...d.guides.x, d.page.w / 2], y: [...d.guides.y, d.page.h / 2] } }))],
+      ...pick('View', 'Clear guides'), null,
+      ...pick('Arrange', 'Step and repeat', 'Fill the page', 'Circle array', 'Nest on the page', 'Auto serialize'),
+    ],
+    Arrange: [
+      ...pick('Arrange', 'Bring to front', 'Bring forward', 'Send backward', 'Send to back', null, 'Align left', 'Align centers', 'Align right', 'Align top', 'Align middles', 'Align bottom', 'Center on page', null,
+        'Distribute across', 'Distribute down', 'Spacing…', null),
+      ['Move by…', () => PD('moveby', 'Move', [{ key: 'dx', label: 'Right (minus = left)', type: 'in', default: 25.4 }, { key: 'dy', label: 'Down (minus = up)', type: 'in', default: 0 }],
+        (v) => apply((d) => D.move(d, ids, v.dx, v.dy))), '', !S(1)],
+      ['Rotate by…', () => PD('rotby', 'Rotate', [{ key: 'deg', label: 'Angle (clockwise)', type: 'num', default: 45, unit: '°' }],
+        (v) => { const b = D.selBounds(selObjs); apply((d) => D.rotateSel(d, ids, v.deg, { x: b.cx, y: b.cy })); }), '', !S(1)],
+      ...pick('Arrange', 'Scale by', 'Fit to page', null, 'Rotate 90° right', 'Rotate 90° left', 'Mirror horizontal', 'Mirror vertical', 'Clear transform'),
+    ],
+    Objects: [
+      ...pick('Arrange', 'Group', 'Ungroup', null), ...pick('Edit', 'Duplicate'), ...pick('Arrange', 'Lock', 'Unlock all', 'Hide', 'Show all'), null,
+      ['Object list', () => setTab('objects')], ['Object properties', () => setTab('props')],
+    ],
+    Effects: pick('Effects', 'Outline…', 'Shadow…', 'Blend…', 'Distort…', 'Stripe…', null, 'Rhinestone', 'Rectangle finisher', 'Shape finisher', 'Trim marks'),
+    Images: [
+      ['Import a picture…', () => doImport(false)], null,
+      ['Vectorize (trace the picture to shapes)…', () => traceDlg(false), '', !pic],
+      ['Contour cut around the picture…', () => traceDlg(true), '', !pic],
+    ],
+    Text: [['Type new text', () => setTool('text'), 'T'], ...base.Text],
+    Curves: [
+      ...base.Effects.filter((x) => x && x[0].startsWith('Combine › ')).map((x) => [x[0].slice(10), ...x.slice(1)]), null,
+      ...pick('Arrange', 'Compound', 'Break apart'), ['Convert to curves', () => toOutlinesIds(ids), 'Ctrl+Q', !textObjs.length], ...pick('Effects', 'Reduce nodes'),
+      ['Edit nodes', () => setTool('node'), 'N'], ['Draw with the pen', () => setTool('pen'), 'P'],
+    ],
+    Colors: [
+      ['Fill color…', () => PD('fillc', 'Fill color', [{ key: 'color', label: 'Color', type: 'color', default: selObjs[0]?.fill?.color || '#000000' }], (v) => setFillColor(v.color))],
+      ['Outline color…', () => PD('strokec', 'Outline', [{ key: 'color', label: 'Color', type: 'color', default: selObjs[0]?.stroke?.color || '#000000' }, { key: 'width', label: 'Thickness', type: 'in', default: selObjs[0]?.stroke?.width || 0.5, step: 0.01 }],
+        (v) => apply((d) => D.update(d, ids, (o) => (o.type === 'image' ? {} : { stroke: { color: v.color, width: Math.max(0, v.width) } })))), '', !S(1)],
+      ['No fill', () => setFillColor(null)], ['No outline', () => setStrokeColor(null)], null,
+      ['Make a cut line (CutContour)', makeCut, '', !S(1)], ...pick('Edit', 'Select same color', 'Select all cut lines'), null,
+      ['Add the fill color to the palette', () => { const c = selObjs[0]?.fill?.color; if (c) setSwatches((s) => (s.includes(c) ? s : [...s, c])); }, '', !selObjs[0]?.fill?.color],
+      ['Fill & outline panel', () => setTab('fill')],
+    ],
+    Tools: [
+      sendCut, wizard, null, ...pick('Effects', 'Contour cut…', 'Rectangle contour cut', 'Page contour cut'), null,
+      ...pick('Text', 'QR code', 'Barcode'), null, ['Nudge distance…', nudgeDlg], ...pick('View', 'Grid spacing'), ...pick('File', 'Job info'),
+    ],
+    Window: [
+      ['New design', newDoc, 'Ctrl+N'], ['Close this design', () => closeTab(tabId)], null,
+      ...tabs.map((t) => { const d = t.id === tabId ? doc : parked.current.get(t.id)?.doc; return [check(t.id === tabId, d?.name || 'Untitled'), () => switchTab(t.id)]; }),
+    ],
+    Help: [['Keyboard shortcuts…', () => setDialog({ kind: 'keys' })]],
+  };
   function caseAll(mode) {
     Promise.all(textObjs.map((o) => retext(o, { text: changeCase(o.text, mode) })))
       .then((made) => apply((d) => ({ ...d, objects: d.objects.map((o) => made.find((m) => m.id === o.id) || o) })))
@@ -510,7 +659,7 @@ export default function Design({ devices, jobs = [], active, onJobsSent }) {
 
   // ---- keyboard ----
   const handlers = useRef({});
-  handlers.current = { openPrint: (w) => openPrint(w), undo, redo, copy, paste, del, dup, save, open, newDoc, doImport, apply, fx, ids, selObjs, textObjs, setDialog, menus };
+  handlers.current = { openPrint: (w) => openPrint(w), undo, redo, copy, paste, del, dup, save, open, newDoc, doImport, apply, fx, ids, selObjs, textObjs, setDialog, menus, nudge: (opts.nudgeIn || 0.1) * MM };
   useEffect(() => {
     if (!active) return undefined;
     const h = (e) => {
@@ -563,7 +712,7 @@ export default function Design({ devices, jobs = [], active, onJobsSent }) {
         if (H.textObjs.length === 1) return run(() => startEditText(H.textObjs[0]));
       }
       if (e.key.startsWith('Arrow') && H.ids.length) {
-        const step = e.shiftKey ? 25.4 : 2.54;
+        const step = e.shiftKey ? H.nudge * 10 : H.nudge;
         const dx = e.key === 'ArrowLeft' ? -step : e.key === 'ArrowRight' ? step : 0, dy = e.key === 'ArrowUp' ? -step : e.key === 'ArrowDown' ? step : 0;
         return run(() => H.apply((d) => D.move(d, H.ids, dx, dy), 'nudge'));
       }
@@ -630,12 +779,43 @@ export default function Design({ devices, jobs = [], active, onJobsSent }) {
             )}
           </div>
         ))}
-        <div className="dz-title">{doc.name}{dirty ? ' •' : ''}{filePath ? <small> — {filePath}</small> : null}</div>
+        <div className="dz-title">InkSign Design</div>
+      </div>
+
+      {/* main toolbar */}
+      <div className="dz-main">
+        <TB ic="new" tip="New design (Ctrl+N)" act={newDoc} />
+        <TB ic="open" tip="Open a saved design (Ctrl+O)" act={open} />
+        <TB ic="save" tip="Save (Ctrl+S)" act={save} />
+        <i className="dz-sep" />
+        <TB ic="import" tip="Import PDF, AI, EPS, SVG, DXF or pictures (Ctrl+I)" act={() => doImport(false)} label="Import" />
+        <TB ic="export" tip="Export a PDF" act={() => exportAs('pdf')} />
+        <i className="dz-sep" />
+        <TB ic="scissors" tip="Cut to the clipboard (Ctrl+X)" dis={!S(1)} act={() => { copy(); del(); }} />
+        <TB ic="copy" tip="Copy (Ctrl+C)" dis={!S(1)} act={copy} />
+        <TB ic="paste" tip="Paste (Ctrl+V)" dis={!clip.current} act={paste} />
+        <TB ic="dup" tip="Duplicate (Ctrl+D)" dis={!S(1)} act={dup} />
+        <TB ic="trash" tip="Delete (Del)" dis={!S(1)} act={del} />
+        <i className="dz-sep" />
+        <TB ic="undo" tip="Undo (Ctrl+Z)" dis={!hist.current.canUndo} act={undo} />
+        <TB ic="redo" tip="Redo (Ctrl+Y)" dis={!hist.current.canRedo} act={redo} />
+        <i className="dz-sep" />
+        <TB ic="group" tip="Group (Ctrl+G)" dis={!S(2)} act={() => apply((d) => D.group(d, sel))} />
+        <TB ic="ungroup" tip="Ungroup (Ctrl+Shift+G)" dis={!selObjs.some((o) => o.groupId)} act={() => apply((d) => D.ungroup(d, sel))} />
+        <TB ic="front" tip="Bring to front" dis={!S(1)} act={() => apply((d) => D.reorder(d, sel, 'front'))} />
+        <TB ic="back" tip="Send to back" dis={!S(1)} act={() => apply((d) => D.reorder(d, sel, 'back'))} />
+        <i className="dz-sep" />
+        <TB ic="weld" tip="Weld (Ctrl+W)" dis={!S(1)} act={() => fx((d) => FX.combine(d, sel, 'weld'))} />
+        <TB ic="contour" tip="Contour cut around the selection" dis={!S(1)} act={contourCutDlg} />
+        <i className="dz-sep" />
+        <TB ic="zoomIn" tip="Zoom in (Ctrl+=)" act={() => canvas.current?.zoomBy(1.4)} />
+        <TB ic="zoomOut" tip="Zoom out (Ctrl+-)" act={() => canvas.current?.zoomBy(1 / 1.4)} />
+        <TB ic="fit" tip="Fit the page (Ctrl+0)" act={() => canvas.current?.fit()} />
+        <TB ic="fitSel" tip="Zoom to the selection (Ctrl+2)" dis={!S(1)} act={() => canvas.current?.fitSelection()} />
         <div className="dz-actions">
-          <button className="tb-btn" onClick={() => doImport(false)} title="Import PDF, AI, EPS, SVG, DXF or pictures (Ctrl+I)">⤓ Import</button>
-          <button className="tb-btn" onClick={() => openPrint('art')} title="RIP and Print (Ctrl+P)">🖨 Print</button>
-          <button className="tb-btn" onClick={() => setDialog({ kind: 'cut' })} title="Cut / Plot (Ctrl+L)">✂ Cut</button>
-          <button className="tb-btn primary" onClick={() => setDialog({ kind: 'printcut' })} title="Print with registration marks, then contour cut">Print & Cut</button>
+          <TB ic="print" tip="RIP and Print (Ctrl+P)" act={() => openPrint('art')} label="Print" />
+          <TB ic="cutter" tip="Send to be Cut (Ctrl+L)" act={() => setDialog({ kind: 'cut' })} label="Cut" />
+          <TB ic="printcut" tip="Contour Cutting Wizard: print with registration marks, then contour cut" act={() => setDialog({ kind: 'printcut' })} label="Print & Cut" cls="primary" />
         </div>
       </div>
 
@@ -644,50 +824,79 @@ export default function Design({ devices, jobs = [], active, onJobsSent }) {
         {sb ? (
           <>
             <span className="dz-pb-label">{selObjs.length === 1 ? (selObjs[0].name || selObjs[0].type) : `${selObjs.length} selected`}</span>
-            <PB label="X" mm={sb.minX} onCommit={(v) => setBox({ x: v })} />
-            <PB label="Y" mm={sb.minY} onCommit={(v) => setBox({ y: v })} />
-            <PB label="W" mm={sb.w} onCommit={(v) => setBox({ w: Math.max(0.1, v) }, opts.lockRatio !== false)} />
-            <PB label="H" mm={sb.h} onCommit={(v) => setBox({ h: Math.max(0.1, v) }, opts.lockRatio !== false)} />
-            <button className={`tb-btn ${opts.lockRatio !== false ? 'on' : ''}`} title="Keep proportions" onClick={() => setOpts((o) => ({ ...o, lockRatio: o.lockRatio === false }))}>🔗</button>
-            <span className="dz-pb-sep" />
-            <button className="tb-btn" title="Rotate 90° left" onClick={() => apply((d) => D.rotateSel(d, sel, -90, { x: sb.cx, y: sb.cy }))}>⟲</button>
-            <button className="tb-btn" title="Rotate 90° right" onClick={() => apply((d) => D.rotateSel(d, sel, 90, { x: sb.cx, y: sb.cy }))}>⟳</button>
-            <button className="tb-btn" title="Mirror horizontal" onClick={() => apply((d) => D.mirror(d, sel, 'h'))}>⇋</button>
-            <button className="tb-btn" title="Mirror vertical" onClick={() => apply((d) => D.mirror(d, sel, 'v'))}>⇵</button>
-            <span className="dz-pb-sep" />
-            {[['left', '⫷'], ['hcenter', '⫼'], ['right', '⫸'], ['top', '⊤'], ['vcenter', '⊝'], ['bottom', '⊥']].map(([a, ic]) => (
-              <button key={a} className="tb-btn" title={`Align ${a}${selObjs.length === 1 ? ' (to the page)' : ''}`} onClick={() => apply((d) => D.align(d, sel, a))}>{ic}</button>
+            <PB label="X" mm={sb.minX} unit={unit} onCommit={(v) => setBox({ x: v })} />
+            <PB label="Y" mm={sb.minY} unit={unit} onCommit={(v) => setBox({ y: v })} />
+            <PB label="W" mm={sb.w} unit={unit} onCommit={(v) => setBox({ w: Math.max(0.1, v) }, opts.lockRatio !== false)} />
+            <PB label="H" mm={sb.h} unit={unit} onCommit={(v) => setBox({ h: Math.max(0.1, v) }, opts.lockRatio !== false)} />
+            <TB ic="link" tip="Keep proportions" on={opts.lockRatio !== false} act={() => setOpts((o) => ({ ...o, lockRatio: o.lockRatio === false }))} />
+            <i className="dz-sep" />
+            <TB ic="rotL" tip="Rotate 90° left" act={() => apply((d) => D.rotateSel(d, sel, -90, { x: sb.cx, y: sb.cy }))} />
+            <TB ic="rotR" tip="Rotate 90° right" act={() => apply((d) => D.rotateSel(d, sel, 90, { x: sb.cx, y: sb.cy }))} />
+            <TB ic="flipH" tip="Mirror horizontal (Ctrl+M)" act={() => apply((d) => D.mirror(d, sel, 'h'))} />
+            <TB ic="flipV" tip="Mirror vertical" act={() => apply((d) => D.mirror(d, sel, 'v'))} />
+            <i className="dz-sep" />
+            {[['left', 'alignL'], ['hcenter', 'alignC'], ['right', 'alignR'], ['top', 'alignT'], ['vcenter', 'alignM'], ['bottom', 'alignB']].map(([a, ic]) => (
+              <TB key={a} ic={ic} tip={`Align ${a === 'hcenter' ? 'centers' : a === 'vcenter' ? 'middles' : a}${selObjs.length === 1 ? ' (to the page)' : ''}`} act={() => apply((d) => D.align(d, sel, a))} />
             ))}
-            <span className="dz-pb-sep" />
-            <button className="tb-btn" title="Weld (Ctrl+W)" onClick={() => fx((d) => FX.combine(d, sel, 'weld'))}>Weld</button>
-            <button className="tb-btn" title="Contour cut" onClick={contourCutDlg}>Contour</button>
-            <button className="tb-btn" title="Group (Ctrl+G)" disabled={selObjs.length < 2} onClick={() => apply((d) => D.group(d, sel))}>Group</button>
-            <button className="tb-btn" title="Ungroup (Ctrl+Shift+G)" disabled={!selObjs.some((o) => o.groupId)} onClick={() => apply((d) => D.ungroup(d, sel))}>Ungroup</button>
           </>
         ) : (
           <>
             <span className="dz-pb-label">Page</span>
-            <PB label="W" mm={doc.page.w} onCommit={(v) => apply((d) => ({ ...d, page: { ...d.page, w: Math.max(5, v) } }))} />
-            <PB label="H" mm={doc.page.h} onCommit={(v) => apply((d) => ({ ...d, page: { ...d.page, h: Math.max(5, v) } }))} />
-            <span className="muted small">{tool === 'shape' ? '' : 'Draw with the tools on the left, or Import artwork.'}</span>
+            <select className="dz-pb-select" value="" title="Page size" onChange={(e) => { const q = PAGE_PRESETS[Number(e.target.value)]; if (q) { apply((d) => ({ ...d, page: { ...d.page, w: q[1] * MM, h: q[2] * MM } })); setTimeout(() => canvas.current?.fit(), 30); } }}>
+              <option value="">{len(doc.page.w)} × {len(doc.page.h)}</option>
+              {PAGE_PRESETS.map((q, i) => <option key={q[0]} value={i}>{q[0]}</option>)}
+            </select>
+            <PB label="W" mm={doc.page.w} unit={unit} onCommit={(v) => apply((d) => ({ ...d, page: { ...d.page, w: Math.max(5, v) } }))} />
+            <PB label="H" mm={doc.page.h} unit={unit} onCommit={(v) => apply((d) => ({ ...d, page: { ...d.page, h: Math.max(5, v) } }))} />
+            <TB ic="swap" tip="Switch the page between wide and tall" act={swapPage} />
+            <button className="dz-tb" title="Page setup: size and material color" onClick={pageSetup}>Settings</button>
           </>
         )}
         {tool === 'shape' && (
           <label className="dz-pb-shape">Shape
-            <select value={shapeKind} onChange={(e) => setShapeKind(e.target.value)}>{SHAPES.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select>
+            <select value={shapeKind} onChange={(e) => setShapeKind(e.target.value)}>{SHAPES.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}</select>
           </label>
         )}
+        <div className="dz-pb-end">
+          <label className="dz-pb-shape">Units
+            <select value={unit} onChange={(e) => setOpts((o) => ({ ...o, units: e.target.value }))}><option value="in">inches</option><option value="mm">mm</option><option value="cm">cm</option></select>
+          </label>
+          <PB label="Nudge" mm={(opts.nudgeIn || 0.1) * MM} unit={unit} onCommit={(v) => { if (v > 0) setOpts((o) => ({ ...o, nudgeIn: v / MM })); }} />
+        </div>
       </div>
 
-      {/* tools */}
+      {/* toolbox: two columns, like VinylMaster's */}
       <div className="dz-tools">
         {TOOLS.map(([id, ic, tip]) => (
-          <button key={id} className={`dz-tool ${tool === id ? 'on' : ''}`} title={tip} onClick={() => setTool(id)}>{ic}</button>
+          <button key={id} className={`dz-tool ${tool === id ? 'on' : ''}`} title={tip} onClick={() => setTool(id)}><Icon name={ic} size={19} /></button>
         ))}
+        <button className="dz-tool" title="Bring in a picture or artwork (Ctrl+I)" onClick={() => doImport(false)}><Icon name="image" size={19} /></button>
         <div className="dz-tool-sep" />
-        <button className="dz-tool" title="Undo (Ctrl+Z)" disabled={!hist.current.canUndo} onClick={undo}>↶</button>
-        <button className="dz-tool" title="Redo (Ctrl+Y)" disabled={!hist.current.canRedo} onClick={redo}>↷</button>
-        <button className="dz-tool" title="Fit page (Ctrl+0)" onClick={() => canvas.current?.fit()}>⛶</button>
+        <button className="dz-tool" title="Contour cut around the selection" disabled={!S(1)} onClick={contourCutDlg}><Icon name="contour" size={19} /></button>
+        <button className="dz-tool" title="Make the selection a cut line (CutContour)" disabled={!S(1)} onClick={makeCut}><Icon name="scissors" size={19} /></button>
+        <button className="dz-tool" title="Objects list" onClick={() => setTab('objects')}><Icon name="layers" size={19} /></button>
+        <button className="dz-tool" title="Send to be Cut (Ctrl+L)" onClick={() => setDialog({ kind: 'cut' })}><Icon name="cutter" size={19} /></button>
+        <div className="dz-tool-fill">
+          <span title="Fill for new shapes" style={{ background: opts.newFill?.type === 'none' ? 'transparent' : opts.newFill?.color || '#000' }} />
+          <span title="Outline for new shapes" className="dz-tool-stroke" style={{ borderColor: opts.newStroke?.color || '#666' }} />
+        </div>
+      </div>
+
+      {/* design tabs */}
+      <div className="dz-doctabs">
+        {tabs.map((t) => {
+          const cur = t.id === tabId;
+          const d = cur ? doc : parked.current.get(t.id)?.doc;
+          const isDirty = cur ? dirty : parked.current.get(t.id)?.dirty;
+          const path = cur ? filePath : parked.current.get(t.id)?.filePath;
+          return (
+            <div key={t.id} className={`dz-doctab ${cur ? 'on' : ''}`} title={path || 'Not saved yet'} onClick={() => switchTab(t.id)}>
+              <span>{d?.name || 'Untitled'}{isDirty ? ' •' : ''}</span>
+              <button title="Close this design" onClick={(e) => { e.stopPropagation(); closeTab(t.id); }}>✕</button>
+            </div>
+          );
+        })}
+        <button className="dz-doctab-add" title="New design (Ctrl+N)" onClick={newDoc}>+</button>
       </div>
 
       {/* canvas */}
@@ -715,7 +924,7 @@ export default function Design({ devices, jobs = [], active, onJobsSent }) {
               }}>Start</button>
             </div>
             <span className="muted small">or bring in artwork</span>
-            <div className="row"><button className="btn" onClick={() => { setWelcome(false); doImport(false); }}>Import artwork…</button><button className="btn" onClick={() => { if (confirmLose()) { setWelcome(false); doImport(true); } }}>Open a PDF / AI / EPS…</button><button className="btn" onClick={() => { setWelcome(false); open(); }}>Open a saved design…</button></div>
+            <div className="row"><button className="btn" onClick={() => { setWelcome(false); doImport(false); }}>Import artwork…</button><button className="btn" onClick={() => { setWelcome(false); doImport(true); }}>Open a PDF / AI / EPS…</button><button className="btn" onClick={() => { setWelcome(false); open(); }}>Open a saved design…</button></div>
             <small className="muted">PDF, AI, EPS, SVG, DXF, PNG and JPG. Text in PDFs comes in as shapes; CutContour lines come in as cut lines.</small>
           </div>
         )}
@@ -738,14 +947,38 @@ export default function Design({ devices, jobs = [], active, onJobsSent }) {
         </div>
       </div>
 
-      <SwatchBar swatches={swatches} onFill={setFillColor} onStroke={setStrokeColor} onCut={makeCut} />
+      {/* color palette down the right edge: left-click fills, right-click outlines */}
+      <div className="dz-palette" onContextMenu={(e) => e.preventDefault()}>
+        <button className="dz-sw dz-sw-none" title="No fill (right-click: no outline)" onClick={() => setFillColor(null)} onContextMenu={(e) => { e.preventDefault(); setStrokeColor(null); }}>⌀</button>
+        <button className="dz-sw dz-sw-cut" title="CutContour — make this a cut line" onClick={makeCut}>✂</button>
+        {[...SIGN_SWATCHES, ...MORE_SWATCHES, ...swatches.filter((c) => ![...SIGN_SWATCHES, ...MORE_SWATCHES].some(([x]) => x === c)).map((c) => [c, c])].map(([c, n]) => (
+          <button key={c} className="dz-sw" style={{ background: c }} title={`${n} (left: fill · right: outline)`} onClick={() => setFillColor(c)} onContextMenu={(e) => { e.preventDefault(); setStrokeColor(c); }} />
+        ))}
+      </div>
+
+      {/* view switches */}
+      <div className="dz-bottom">
+        <span className="dz-bottom-label">View</span>
+        <TB ic="page" label="Page" tip="Show or hide the page" on={opts.showPage !== false} act={() => setOpts((o) => ({ ...o, showPage: o.showPage === false }))} />
+        <TB ic="grid" label="Grid" tip="Show or hide the grid" on={!!opts.showGrid} act={() => setOpts((o) => ({ ...o, showGrid: !o.showGrid }))} />
+        <TB ic="snap" label="Snap" tip="Snap to guides, the page and other objects" on={!!(opts.snapGuides && opts.snapObjects)} act={() => setOpts((o) => { const on = !(o.snapGuides && o.snapObjects); return { ...o, snapGuides: on, snapObjects: on }; })} />
+        <TB ic="snap" label="Snap to grid" tip="Snap to the grid" on={!!opts.snapGrid} act={() => setOpts((o) => ({ ...o, snapGrid: !o.snapGrid }))} />
+        <TB ic="wire" label="Wireframe" tip="Outlines only (Ctrl+Shift+W)" on={!!opts.wire} act={() => setOpts((o) => ({ ...o, wire: !o.wire }))} />
+        <button className="dz-tb" title="Grid spacing" onClick={() => PD('grid', 'Grid', [{ key: 'g', label: 'Grid spacing', type: 'in', default: (opts.gridIn || 0.25) * MM }], (v) => setOpts((o) => ({ ...o, gridIn: Math.max(0.01, v.g / MM) })))}>Settings</button>
+        <div className="dz-zoom">
+          <TB ic="zoomOut" tip="Zoom out" act={() => canvas.current?.zoomBy(1 / 1.4)} />
+          <button className="dz-tb dz-zoom-pct" title="Actual size (Ctrl+1)" onClick={() => canvas.current?.actual()}>{Math.round(((view.z * MM) / 96) * 100)}%</button>
+          <TB ic="zoomIn" tip="Zoom in" act={() => canvas.current?.zoomBy(1.4)} />
+          <TB ic="fit" tip="Fit the page (Ctrl+0)" act={() => canvas.current?.fit()} />
+        </div>
+      </div>
 
       <div className="dz-status">
-        <span><em>Cursor</em>{cursor ? `${(cursor.x / MM).toFixed(2)}″, ${(cursor.y / MM).toFixed(2)}″` : '—'}</span>
-        <span><em>Zoom</em>{Math.round(((view.z * MM) / 96) * 100)}%</span>
-        {sb && <span><em>Selection</em>{(sb.w / MM).toFixed(2)}″ × {(sb.h / MM).toFixed(2)}″</span>}
-        <span><em>Page</em>{(doc.page.w / MM).toFixed(2)}″ × {(doc.page.h / MM).toFixed(2)}″</span>
+        <span><em>Cursor</em>{cursor ? `${len(cursor.x)}, ${len(cursor.y)}` : '—'}</span>
+        {sb && <span><em>Selection</em>{len(sb.w)} × {len(sb.h)}</span>}
+        <span><em>Page</em>{len(doc.page.w)} × {len(doc.page.h)}</span>
         <span><em>Objects</em>{doc.objects.length}</span>
+        <span><em>Tool</em>{TOOLS.find((t) => t[0] === tool)?.[2].split(' — ')[0].replace(/ \(.\)$/, '')}</span>
         {msg && <span className="dz-msg">{msg}</span>}
       </div>
 
@@ -759,6 +992,11 @@ export default function Design({ devices, jobs = [], active, onJobsSent }) {
         <PrintCutDialog devices={devices} doc={doc} sceneFor={(marks) => toScene(docRef.current, { marks })} cutPaths={cutLines} defaultName={doc.name}
           onClose={() => setDialog(null)} onSent={(t) => flash(t)}
           onAddCut={() => { const all = doc.objects.filter((o) => !o.cut && !o.hidden).map((o) => o.id); if (all.length) fx((d) => FX.contourCut(d, all, { offsetMm: 1.5875 })); }} />
+      )}
+      {dialog?.kind === 'keys' && (
+        <Modal title="Keyboard shortcuts" onClose={() => setDialog(null)} foot={<span />}>
+          <div className="dz-keys">{SHORTCUTS.map(([k, t]) => <React.Fragment key={k}><kbd>{k}</kbd><span>{t}</span></React.Fragment>)}</div>
+        </Modal>
       )}
       {dialog?.kind === 'jobinfo' && <JobInfo doc={doc} stats={stats} onClose={() => setDialog(null)} />}
       {dialog?.kind === 'serial' && <SerialDialog obj={textObjs[0]} onClose={() => setDialog(null)} onDone={(objs, first) => { apply((d) => ({ ...d, objects: [...d.objects.map((o) => (o.id === first.id ? first : o)), ...objs] })); setSel([first.id, ...objs.map((o) => o.id)]); }} />}
@@ -776,16 +1014,21 @@ export default function Design({ devices, jobs = [], active, onJobsSent }) {
   );
 }
 
-function PB({ label, mm, onCommit }) {
-  const fmt = (v) => String(+(v / MM).toFixed(3));
+function TB({ ic, tip, act, dis, on, label, cls = '' }) {
+  return <button className={`dz-tb ${on ? 'on' : ''} ${cls}`} title={tip} disabled={!!dis} onClick={act}><Icon name={ic} />{label ? <span>{label}</span> : null}</button>;
+}
+
+function PB({ label, mm, onCommit, unit = 'in' }) {
+  const u = UNITS[unit];
+  const fmt = (v) => String(+(v / u.k).toFixed(u.dp));
   const [t, setT] = useState(fmt(mm));
-  useEffect(() => setT(fmt(mm)), [mm]);
+  useEffect(() => setT(fmt(mm)), [mm, unit]);
   return (
     <label className="dz-pb">{label}
-      <input type="number" step={0.125} value={t} onChange={(e) => setT(e.target.value)}
-        onBlur={() => { const v = parseFloat(t); if (Number.isFinite(v) && fmt(mm) !== t) onCommit(v * MM); else setT(fmt(mm)); }}
+      <input type="number" step={u.step} value={t} onChange={(e) => setT(e.target.value)}
+        onBlur={() => { const v = parseFloat(t); if (Number.isFinite(v) && fmt(mm) !== t) onCommit(v * u.k); else setT(fmt(mm)); }}
         onKeyDown={(e) => { if (e.key === 'Enter') e.target.blur(); if (e.key === 'Escape') { setT(fmt(mm)); e.target.blur(); } }} />
-      <em>in</em>
+      <em>{unit}</em>
     </label>
   );
 }

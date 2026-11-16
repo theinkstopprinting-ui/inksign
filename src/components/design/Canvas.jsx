@@ -567,8 +567,8 @@ const Canvas = forwardRef(function Canvas(props, ref) {
       onContextMenu={(e) => e.preventDefault()}>
       <svg className="dz-svg" width={size.w} height={size.h}>
         <g transform={`translate(${view.vx} ${view.vy}) scale(${z})`}>
-          <rect x={4 / z} y={4 / z} width={doc.page.w} height={doc.page.h} fill="rgba(0,0,0,.45)" />
-          <rect x={0} y={0} width={doc.page.w} height={doc.page.h} style={pageStyle} />
+          {opts.showPage !== false && <rect x={4 / z} y={4 / z} width={doc.page.w} height={doc.page.h} fill="rgba(0,0,0,.45)" />}
+          {opts.showPage !== false && <rect x={0} y={0} width={doc.page.w} height={doc.page.h} style={pageStyle} />}
           {gridLines && <g stroke="#dfe3ea" strokeWidth={1} vectorEffect="non-scaling-stroke">{gridLines}</g>}
           {doc.objects.map((o) => <ObjView key={o.id} o={o} z={z} wire={wire} />)}
           {/* guides */}
