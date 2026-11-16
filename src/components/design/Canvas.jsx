@@ -103,7 +103,7 @@ const CURSORS = { nw: 'nwse-resize', se: 'nwse-resize', ne: 'nesw-resize', sw: '
 const Canvas = forwardRef(function Canvas(props, ref) {
   const {
     doc, sel, setSel, tool, setTool, view, setView, opts, shapeKind,
-    live, begin, commit, onCursor, onTextAt, onEditText, onPick, wire, active,
+    live, begin, commit, onCursor, onTextAt, onEditText, onPick, wire, active, ghost,
   } = props;
   const wrap = useRef(null);
   const [size, setSize] = useState({ w: 800, h: 600 });
@@ -571,6 +571,22 @@ const Canvas = forwardRef(function Canvas(props, ref) {
           {opts.showPage !== false && <rect x={0} y={0} width={doc.page.w} height={doc.page.h} style={pageStyle} />}
           {gridLines && <g stroke="#dfe3ea" strokeWidth={1} vectorEffect="non-scaling-stroke">{gridLines}</g>}
           {doc.objects.map((o) => <ObjView key={o.id} o={o} z={z} wire={wire} />)}
+          {/* registration marks kept with the design (Tools › Place registration marks): the four corner marks and the box to stay inside */}
+          {doc.marks && (() => {
+            const m = doc.marks.margin, s = doc.marks.size, t = Math.max(doc.marks.thickness || 0.5, 1.5 / z), W = doc.page.w, H = doc.page.h, c = m + s + 2;
+            const L = [[m, m, s, t], [m, m, t, s], [W - m - s, m, s, t], [W - m - t, m, t, s], [m, H - m - t, s, t], [m, H - m - s, t, s], [W - m - s, H - m - t, s, t], [W - m - t, H - m - s, t, s]];
+            return (
+              <g pointerEvents="none">
+                {L.map(([x, y, w, h], i) => <rect key={`rm${i}`} x={x} y={y} width={w} height={h} fill="#000" />)}
+                {W > 2 * c && H > 2 * c && <rect x={c} y={c} width={W - 2 * c} height={H - 2 * c} fill="none" stroke="#ff7a1a" strokeDasharray="8 5" strokeWidth={1} vectorEffect="non-scaling-stroke" />}
+              </g>
+            );
+          })()}
+          {/* the contour being set up in the Create Cut Contour panel */}
+          {ghost && ghost.length > 0 && (
+            <path pointerEvents="none" d={ghost.map((q) => `M${q.map((pt) => `${pt.x} ${pt.y}`).join('L')}Z`).join(' ')} fillRule="evenodd"
+              fill={ghost.fill || 'rgba(255,0,255,.07)'} stroke="#ff00ff" strokeDasharray="7 4" strokeWidth={1.6} vectorEffect="non-scaling-stroke" />
+          )}
           {/* guides */}
           <g stroke="#2aa8ff" strokeWidth={1} vectorEffect="non-scaling-stroke">
             {doc.guides.x.map((g, i) => <line key={`gx${i}`} x1={g} x2={g} y1={-1e5} y2={1e5} vectorEffect="non-scaling-stroke" />)}

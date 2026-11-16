@@ -25,7 +25,7 @@ const api = window.inksign;
 const NAV = [
   { items: [['home', 'Home', 'home', 'Start here — pick what you are making']] },
   { title: 'Make', items: [
-    ['design', 'Design', 'design', 'Lay out and design signs — VinylMaster-style workspace; opens PDF, AI, EPS'],
+    ['design', 'Design', 'design', 'Lay out and design signs — open PDF, AI, EPS'],
     ['studio', 'Vinyl (Cut Studio)', 'vinyl', 'Cut lettering, logos and decals'],
     ['printcut', 'Print & Cut', 'sticker', 'Stickers and labels: print, then contour-cut'],
     ['wide', 'Wide Format (HP)', 'banner', 'Banners, signs and canvas on the HP Latex'],

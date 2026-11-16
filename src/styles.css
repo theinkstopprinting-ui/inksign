@@ -784,3 +784,10 @@ details.adv[open] > summary { margin-bottom: 4px; }
 .bc-list { display: flex; flex-direction: column; gap: 4px; max-height: 220px; overflow-y: auto; }
 .bc-item { display: grid; grid-template-columns: auto minmax(60px, 1fr) auto auto auto; gap: 8px; align-items: center; font-size: 12px; }
 .bc-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ct { gap: 12px; }
+.ct-group { display: flex; flex-direction: column; gap: 8px; padding: 10px; border: 1px solid var(--line); border-radius: 10px; background: rgba(255,255,255,.02); }
+.ct-group > b { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+.ct .check { display: flex; gap: 8px; align-items: flex-start; font-size: 13px; line-height: 1.3; }
+.ct .check input { margin-top: 2px; flex: none; }
+.ct select { background: var(--bg); border: 1px solid var(--line); border-radius: 7px; padding: 6px 8px; color: var(--text); width: 100%; }
+.ct input[type=range] { padding: 0; }

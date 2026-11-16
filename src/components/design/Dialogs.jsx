@@ -134,9 +134,10 @@ export function PrintCutDialog({ devices, doc, sceneFor, cutPaths, onClose, onSe
   const printer = printers.find((d) => d.id === printerId) || printers[0];
   const cutter = cutters.find((d) => d.id === cutterId) || cutters[0];
   const titan = cutter?.config?.hpglStyle === 'titan';
-  const [marginIn, setMarginIn] = useState(0.4);
-  const [markIn, setMarkIn] = useState(titan ? 26 / MM : 0.4);
-  useEffect(() => setMarkIn(titan ? 26 / MM : 0.4), [titan]);
+  // marks placed on the design (Tools › Place registration marks) are used as they are
+  const [marginIn, setMarginIn] = useState(doc.marks ? doc.marks.margin / MM : 0.4);
+  const [markIn, setMarkIn] = useState(doc.marks ? doc.marks.size / MM : titan ? 26 / MM : 0.4);
+  useEffect(() => { if (!doc.marks) setMarkIn(titan ? 26 / MM : 0.4); }, [titan]);
   const [name, setName] = useState(defaultName);
   const [step, setStep] = useState('print');
   const [err, setErr] = useState('');

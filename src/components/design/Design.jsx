@@ -24,6 +24,7 @@ import { nest } from '../../lib/nest.js';
 import Canvas from './Canvas.jsx';
 import { PageProps, ObjectProps, FillStroke, ObjectList, SIGN_SWATCHES, PAGE_PRESETS, MM } from './Panels.jsx';
 import Icon from './icons.jsx';
+import ContourPanel from './ContourPanel.jsx';
 import { ParamDialog, PrintCutDialog, JobInfo, Modal } from './Dialogs.jsx';
 import CutWindow from '../CutWindow.jsx';
 
@@ -108,6 +109,8 @@ export default function Design({ devices, jobs = [], active, onJobsSent }) {
   const [msg, setMsg] = useState('');
   const [cursor, setCursor] = useState(null);
   const [textEdit, setTextEdit] = useState(null); // { id?: string, x, y, text }
+  const [ghost, setGhost] = useState(null); // contour preview drawn on the page
+  const traceCache = useRef(new Map());
   const [filePath, setFilePath] = useState(null);
   const [dirty, setDirty] = useState(false);
   const [busy, setBusy] = useState('');
@@ -362,18 +365,52 @@ export default function Design({ devices, jobs = [], active, onJobsSent }) {
   };
 
   // ---- picture tracing ----
-  const traceImage = async (o, { mode, threshold, offsetMm, asCut }) => {
+  const tracePlaced = async (o, { mode, threshold }) => {
     const a = await analyzeImage(o.src, 1200);
     const mask = makeMask(a.data, a.w, a.h, { mode, threshold, tolerance: 40 });
-    const traced = traceToPaths(mask, a.w, a.h, { widthMm: o.bw, minAreaPx: 30 });
-    if (!traced.length) throw new Error('Nothing found — try another setting');
-    const placed = traced.map((p) => p.map((q) => D.placePoint(o, q)));
+    return traceToPaths(mask, a.w, a.h, { widthMm: o.bw, minAreaPx: 30 }).map((p) => p.map((q) => D.placePoint(o, q)));
+  };
+  const traceImage = async (o, { mode, threshold, offsetMm, asCut }) => {
+    const placed = await tracePlaced(o, { mode, threshold });
+    if (!placed.length) throw new Error('Nothing found — try another setting');
     if (asCut) {
       const out = offsetPaths(placed, Math.max(0.01, offsetMm), { outerOnly: true, corners: 'round' });
       return D.shapeFromPaths(out, { name: 'CutContour', fill: { type: 'none' }, stroke: { color: D.CUT_COLOR, width: 0 }, cut: true });
     }
     return D.shapeFromPaths(placed, { name: `${o.name} (traced)`, fill: { type: 'solid', color: '#000000' }, fillRule: 'evenodd' });
   };
+
+  // ---- Create Cut Contour panel + registration marks on the design ----
+  const contourCompute = async (p) => {
+    const objs = docRef.current.objects.filter((o) => sel.includes(o.id) && !o.hidden);
+    const traced = {};
+    if (p.images) for (const o of objs.filter((x) => x.type === 'image' && !x.cut)) {
+      const k = [o.id, o.src.length, p.traceMode, p.threshold, o.x, o.y, o.w, o.h, o.rot, o.flipX, o.flipY].join('|');
+      if (!traceCache.current.has(k)) { if (traceCache.current.size > 40) traceCache.current.clear(); traceCache.current.set(k, await tracePlaced(o, { mode: p.traceMode, threshold: p.threshold })); }
+      if (traceCache.current.get(k).length) traced[o.id] = traceCache.current.get(k);
+    }
+    const b = D.selBounds(objs);
+    const off = p.mode === 'pct' && b ? (p.pct / 100) * Math.min(b.w, b.h) : p.dist;
+    return FX.contourPaths(docRef.current, sel, { offsetMm: off, corners: p.corners, keepHoles: p.keepHoles, traced });
+  };
+  const contourApply = (paths, p) => { const r = fx((d) => FX.contourApply(d, sel, paths, { output: p.output, color: p.color })); if (r) flash(p.output === 'fill' ? 'Outline added behind the art' : 'Cut contour added'); };
+  const hasTitan = devices.some((d) => d.kind === 'cutter' && d.config?.hpglStyle === 'titan');
+  const marksDlg = () => PD('regmarks', 'Registration marks', [
+    { key: 'size', label: 'Mark size', type: 'in', default: doc.marks?.size || (hasTitan ? 26 : 10.16), help: hasTitan ? 'The Titan reads 26 mm (1.02″) marks' : '' },
+    { key: 'margin', label: 'In from the page edge', type: 'in', default: doc.marks?.margin || 10.16 },
+    { key: 'fit', label: `Fit the page around ${sel.length ? 'the selected art' : 'all the art'}, with room for the marks`, type: 'bool', default: !doc.marks && doc.objects.length > 0 },
+    { key: 'room', label: 'Space between the art and the marks', type: 'in', default: 3.175 },
+  ], (v) => {
+    if (!(v.size > 0)) throw new Error('The marks need a size');
+    apply((d) => {
+      const marks = { margin: Math.max(0, v.margin), size: v.size, thickness: hasTitan ? 1 : 0.5 };
+      const list = sel.length ? sel : d.objects.filter((o) => !o.hidden).map((o) => o.id);
+      const base2 = v.fit && list.length ? D.fitPageToSel(d, list, marks.margin + marks.size + 2 + Math.max(0, v.room)) : d;
+      return { ...base2, marks };
+    });
+    if (v.fit) setTimeout(() => canvas.current?.fit(), 30);
+  });
+  const removeMarks = () => apply((d) => { const { marks: _m, ...rest } = d; return rest; });
 
   // ---- menus ----
   const ids = sel;
@@ -463,7 +500,7 @@ export default function Design({ devices, jobs = [], active, onJobsSent }) {
         { key: 'dist', label: 'Distance', type: 'in', default: 3.175, help: 'Negative goes inside' }, { key: 'corners', label: 'Corners', type: 'select', options: [['round', 'Round'], ['miter', 'Sharp'], ['square', 'Square']], default: 'round' },
         { key: 'outer', label: 'Outer edge only (fill letter holes)', type: 'bool', default: true }, { key: 'color', label: 'Color', type: 'color', default: '#ffffff' },
       ], (v) => fx((d) => FX.outline(d, ids, { distMm: v.dist, corners: v.corners, outerOnly: v.outer, color: v.color }))), '', !S(1)],
-      ['Contour cut…', () => contourCutDlg(), '', !S(1)],
+      ['Create cut contour…', () => contourCutDlg()],
       ['Rectangle contour cut…', () => PD('rectcut', 'Rectangle contour cut', [{ key: 'margin', label: 'Space around the art', type: 'in', default: 3.175 }, { key: 'radius', label: 'Corner radius', type: 'in', default: 0 }],
         (v) => fx((d) => FX.rectContourCut(d, ids, { marginMm: v.margin, radiusMm: v.radius }))), '', !S(1)],
       ['Page contour cut…', () => PD('pagecut', 'Page contour cut', [{ key: 'margin', label: 'In from the page edge', type: 'in', default: 0 }, { key: 'radius', label: 'Corner radius', type: 'in', default: 0 }],
@@ -568,6 +605,7 @@ export default function Design({ devices, jobs = [], active, onJobsSent }) {
     Text: [['Type new text', () => setTool('text'), 'T'], ...base.Text],
     Curves: [
       ...base.Effects.filter((x) => x && x[0].startsWith('Combine › ')).map((x) => [x[0].slice(10), ...x.slice(1)]), null,
+      ...pick('Effects', 'Outline…', 'Create cut contour…'), null,
       ...pick('Arrange', 'Compound', 'Break apart'), ['Convert to curves', () => toOutlinesIds(ids), 'Ctrl+Q', !textObjs.length], ...pick('Effects', 'Reduce nodes'),
       ['Edit nodes', () => setTool('node'), 'N'], ['Draw with the pen', () => setTool('pen'), 'P'],
     ],
@@ -581,7 +619,8 @@ export default function Design({ devices, jobs = [], active, onJobsSent }) {
       ['Fill & outline panel', () => setTab('fill')],
     ],
     Tools: [
-      sendCut, wizard, null, ...pick('Effects', 'Contour cut…', 'Rectangle contour cut', 'Page contour cut'), null,
+      sendCut, wizard, null, ...pick('Effects', 'Create cut contour…', 'Rectangle contour cut', 'Page contour cut'), null,
+      [doc.marks ? 'Change registration marks…' : 'Place registration marks…', marksDlg], ['Remove registration marks', removeMarks, '', !doc.marks], null,
       ...pick('Text', 'QR code', 'Barcode'), null, ['Nudge distance…', nudgeDlg], ...pick('View', 'Grid spacing'), ...pick('File', 'Job info'),
     ],
     Window: [
@@ -629,9 +668,8 @@ export default function Design({ devices, jobs = [], active, onJobsSent }) {
     const all = D.selBounds(out.objects.filter((o) => sel.includes(o.id)));
     if (all && all.maxY > d.page.h) flash(`Nested — it needs ${(all.maxY / MM).toFixed(1)}″ of height; the page is ${(d.page.h / MM).toFixed(1)}″`);
   }
-  function contourCutDlg() {
-    const pic = selObjs.length === 1 && selObjs[0].type === 'image' ? selObjs[0] : null;
-    if (pic) { traceDlg(true); return; }
+  function contourCutDlg() { setTab('contour'); if (!selObjs.length) flash('Select the art to go around'); }
+  function quickContourDlg() {
     PD('contour', 'Contour cut', [
       { key: 'offset', label: 'Distance from the art', type: 'in', default: 1.5875, help: 'Bleed/border around stickers; 0 cuts on the edge' },
       { key: 'corners', label: 'Corners', type: 'select', options: [['round', 'Round'], ['miter', 'Sharp'], ['square', 'Square']], default: 'round' },
@@ -902,7 +940,7 @@ export default function Design({ devices, jobs = [], active, onJobsSent }) {
       {/* canvas */}
       <div className="dz-stage">
         <Canvas ref={canvas} doc={doc} sel={sel} setSel={setSel} tool={tool} setTool={setTool} view={view} setView={setView}
-          opts={opts} shapeKind={shapeKind} live={live} begin={begin} commit={commit} onCursor={setCursor} wire={opts.wire} active={active}
+          ghost={tab === 'contour' ? ghost : null} opts={opts} shapeKind={shapeKind} live={live} begin={begin} commit={commit} onCursor={setCursor} wire={opts.wire} active={active}
           onTextAt={async (p) => { if (textEdit) { await commitTextEdit(); return; } setTextEdit({ x: p.x, y: p.y, text: '' }); }} onEditText={startEditText} onPick={pickFrom} />
         {textOverlay}
         {busy && <div className="dz-busy">{busy}</div>}
@@ -934,8 +972,9 @@ export default function Design({ devices, jobs = [], active, onJobsSent }) {
       <div className="dz-right">
         <div className="seg dz-tabs">
           <button className={tab === 'props' ? 'on' : ''} onClick={() => setTab('props')}>Properties</button>
-          <button className={tab === 'fill' ? 'on' : ''} onClick={() => setTab('fill')}>Fill & outline</button>
+          <button className={tab === 'fill' ? 'on' : ''} onClick={() => setTab('fill')}>Fill</button>
           <button className={tab === 'objects' ? 'on' : ''} onClick={() => setTab('objects')}>Objects</button>
+          <button className={tab === 'contour' ? 'on' : ''} onClick={() => setTab('contour')}>Contour</button>
         </div>
         <div className="dz-right-body">
           {tab === 'props' && (selObjs.length
@@ -943,6 +982,11 @@ export default function Design({ devices, jobs = [], active, onJobsSent }) {
               onOutline={toOutlinesIds} onTraceCut={() => traceDlg(true)} />
             : <PageProps doc={doc} setPage={(patch) => apply((d) => ({ ...d, ...patch }), 'page')} stats={stats} />)}
           {tab === 'fill' && <FillStroke objs={selObjs.filter((o) => !o.cut)} apply={apply} swatches={swatches} addSwatch={(c) => setSwatches((s) => (s.includes(c) ? s : [...s, c]))} />}
+          {tab === 'contour' && (
+            <ContourPanel count={selObjs.length} hasImage={selObjs.some((o) => o.type === 'image')} unit={unit} units={UNITS} page={doc.page} marks={doc.marks || null}
+              sig={selObjs.map((o) => [o.id, o.x, o.y, o.w, o.h, o.rot, o.flipX, o.flipY, o.text || '', o.paths ? o.paths.length : 0].join(',')).join(';')}
+              compute={contourCompute} onPreview={setGhost} onApply={contourApply} onMarks={marksDlg} onRemoveMarks={removeMarks} />
+          )}
           {tab === 'objects' && <ObjectList doc={doc} sel={sel} setSel={setSel} apply={apply} />}
         </div>
       </div>

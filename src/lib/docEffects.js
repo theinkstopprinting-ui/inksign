@@ -155,6 +155,26 @@ export function contourCut(doc, ids, { offsetMm = 1.5, corners = 'round', outerO
   return insert(doc, ids, [o], 'above');
 }
 
+/**
+ * The contour for the Create Cut Contour panel, without adding it: the welded outline of the
+ * selection pushed out (or in) by offsetMm. `traced` maps a picture's id to its traced shape.
+ */
+export function contourPaths(doc, ids, { offsetMm = 1.5, corners = 'round', keepHoles = false, traced = {} } = {}) {
+  const objs = sel(doc, ids);
+  const art = objs.filter((o) => !o.cut);
+  const parts = (art.length ? art : objs).flatMap((o) => weld(o.type === 'image' ? (traced[o.id] || placedPaths(o)) : closedOf(o)));
+  if (!parts.length) return [];
+  return offsetPaths(weld(parts), offsetMm === 0 ? 0.001 : offsetMm, { corners, outerOnly: !keepHoles });
+}
+/** Add contour paths made by contourPaths(): a CutContour line on top, or a solid color behind */
+export function contourApply(doc, ids, paths, { output = 'cut', color = '#ffffff' } = {}) {
+  if (!paths || !paths.length) throw new Error('Nothing to go around');
+  const o = output === 'fill'
+    ? shapeFromPaths(paths, { name: 'Outline', fill: { type: 'solid', color }, stroke: { color: null, width: 0 }, fillRule: 'evenodd' })
+    : shapeFromPaths(paths, { name: 'CutContour', fill: { type: 'none' }, stroke: { color: CUT_COLOR, width: 0 }, cut: true, fillRule: 'evenodd' });
+  return insert(doc, ids, [o], output === 'fill' ? 'below' : 'above');
+}
+
 /** Page contour cut mark: a cut line around the whole page (or inset by marginMm) */
 export function pageContourCut(doc, { marginMm = 0, radiusMm = 0 } = {}) {
   const r = rectangle(doc.page.w - 2 * marginMm, doc.page.h - 2 * marginMm, radiusMm);
