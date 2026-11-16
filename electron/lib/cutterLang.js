@@ -219,4 +219,21 @@ function testPattern() {
   return [square, tri];
 }
 
-module.exports = { transformPaths, bounds, addOvercut, toHPGL, toGPGL, generate, registeredJob, jobExtent, moveTo, areaTrace, testPattern, unescapeCommands, MM_PER_IN };
+// ---- Poll size: ask the cutter how big the loaded media is (Flexi's "poll size" button) ----
+// HP-GL: OH; answers the hard-clip limits "x0,y0,x1,y1". GP-GL: "[" answers the lower-left corner and
+// "U" the upper-right, each "x,y" (commands end with ETX).
+function sizeQueries(cfg = {}) {
+  return cfg.language === 'gpgl' ? ['[\x03', 'U\x03'] : ['OH;'];
+}
+/** replies: the answers to sizeQueries(), in order → { acrossMm, alongMm } (X runs along the roll, Y across) */
+function parseSizeReplies(replies, cfg = {}) {
+  const nums = replies.flatMap((r) => (String(r || '').match(/-?\d+(?:\.\d+)?/g) || []).map(Number));
+  if (nums.length < 4) throw new Error(nums.length ? `The cutter's answer was not a size: "${replies.join(' ').replace(/[^\x20-\x7e]/g, ' ').trim().slice(0, 60)}"` : 'The cutter did not answer. Is the media loaded, and the cutter showing READY?');
+  const upm = Number(cfg.unitsPerMm) || (cfg.language === 'gpgl' ? 10 : 40);
+  const [x0, y0, x1, y1] = nums;
+  const alongMm = Math.abs(x1 - x0) / upm, acrossMm = Math.abs(y1 - y0) / upm;
+  if (!(acrossMm >= 20 && acrossMm <= 3000)) throw new Error(`The cutter answered ${nums.slice(0, 4).join(', ')}, which is not a usable width`);
+  return { acrossMm, alongMm, raw: nums.slice(0, 4) };
+}
+
+module.exports = { transformPaths, bounds, addOvercut, toHPGL, toGPGL, generate, registeredJob, jobExtent, moveTo, areaTrace, testPattern, unescapeCommands, MM_PER_IN, sizeQueries, parseSizeReplies };

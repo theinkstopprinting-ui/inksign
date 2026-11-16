@@ -225,7 +225,99 @@ async function sendViaConnection(cfg, data, docName) {
   }
 }
 
+// ---- asking the cutter a question and reading its answer (roll size) ----
+// USB cutters that Windows shows as a printer: the spooler only sends, so the USB printing device is
+// opened directly (the same way VinylMaster's Barcode Controller talks to the Titan).
+const USB_QUERY_PS1 = String.raw`param([string]$PrinterName,[string]$FilePath,[int]$TimeoutMs=2500)
+$ErrorActionPreference = 'Stop'
+$port = (Get-Printer -Name $PrinterName).PortName
+if ($port -notmatch '^USB(\d+)$') { throw "This cutter is on Windows port '$port'. Reading from it needs a USB port (USB001, USB002 ...)." }
+$n = [int]$Matches[1]
+$root = 'HKLM:\SYSTEM\CurrentControlSet\Control\DeviceClasses\{28d78fad-5a12-11d1-ae5b-0000f803a8c2}'
+$paths = @()
+Get-ChildItem $root | ForEach-Object {
+  $dp = Join-Path $_.PSPath '#\Device Parameters'
+  if (Test-Path $dp) { $v = Get-ItemProperty $dp; if ($v.'Port Number' -eq $n) { $paths += ('\\?\' + $_.PSChildName.Substring(4)) } }
+}
+if (-not $paths.Count) { throw "Could not find the USB device behind $port." }
+Add-Type -TypeDefinition @"
+using System; using System.IO; using System.Text; using System.Diagnostics; using System.Runtime.InteropServices; using Microsoft.Win32.SafeHandles;
+public static class InkUsbQuery {
+  [DllImport("kernel32.dll", SetLastError=true, CharSet=CharSet.Unicode)]
+  static extern SafeFileHandle CreateFile(string name, uint access, uint share, IntPtr sa, uint disp, uint flags, IntPtr tmpl);
+  public static string Ask(string path, byte[] data, int timeoutMs) {
+    SafeFileHandle h = CreateFile(path, 0xC0000000, 3, IntPtr.Zero, 3, 0x40000000, IntPtr.Zero);
+    if (h.IsInvalid) throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error());
+    using (FileStream fs = new FileStream(h, FileAccess.ReadWrite, 4096, true)) {
+      fs.Write(data, 0, data.Length); fs.Flush();
+      StringBuilder sb = new StringBuilder(); byte[] buf = new byte[256]; Stopwatch sw = Stopwatch.StartNew();
+      while (sw.ElapsedMilliseconds < timeoutMs) {
+        var t = fs.ReadAsync(buf, 0, buf.Length);
+        if (!t.Wait(Math.Max(1, timeoutMs - (int)sw.ElapsedMilliseconds))) break;
+        if (t.Result > 0) { sb.Append(Encoding.ASCII.GetString(buf, 0, t.Result)); string s = sb.ToString(); if (s.IndexOf('\r') >= 0 || s.IndexOf('\x03') >= 0) break; }
+      }
+      return sb.ToString();
+    }
+  }
+}
+"@
+$data = [System.IO.File]::ReadAllBytes($FilePath)
+$last = $null
+foreach ($p in $paths) {
+  try { $r = [InkUsbQuery]::Ask($p, $data, $TimeoutMs); [Console]::Out.Write($r); exit 0 } catch { $last = $_ }
+}
+throw "Could not open the cutter on $port to read from it: $($last.Exception.Message)"
+`;
+
+const SERIAL_QUERY_PS1 = String.raw`param([string]$Port,[int]$Baud=9600,[string]$Handshake='RequestToSend',[string]$FilePath,[int]$TimeoutMs=2500)
+$ErrorActionPreference = 'Stop'
+$sp = New-Object System.IO.Ports.SerialPort $Port,$Baud,'None',8,'One'
+$sp.Handshake = [System.IO.Ports.Handshake]$Handshake
+$sp.ReadTimeout = 250; $sp.WriteTimeout = 5000
+$sp.Open()
+try {
+  $data = [System.IO.File]::ReadAllBytes($FilePath)
+  $sp.Write($data, 0, $data.Length)
+  $sb = New-Object System.Text.StringBuilder
+  $sw = [System.Diagnostics.Stopwatch]::StartNew()
+  while ($sw.ElapsedMilliseconds -lt $TimeoutMs) {
+    try { $c = $sp.ReadChar(); [void]$sb.Append([char]$c); if ($c -eq 13 -or $c -eq 3) { break } } catch [System.TimeoutException] { }
+  }
+  [Console]::Out.Write($sb.ToString())
+} finally { $sp.Close() }
+`;
+
+function queryTcp(host, port, data, timeoutMs) {
+  return new Promise((resolve, reject) => {
+    let out = '';
+    const s = net.createConnection({ host, port });
+    const done = () => { s.destroy(); resolve(out); };
+    const t = setTimeout(done, timeoutMs);
+    s.on('connect', () => s.write(data));
+    s.on('data', (d) => { out += d.toString('latin1'); if (/[\r\x03]/.test(out)) { clearTimeout(t); done(); } });
+    s.on('error', (e) => { clearTimeout(t); reject(e); });
+  });
+}
+
+/** Send `data` to the cutter and return what it answers (one line), or '' if it says nothing in time. */
+async function queryViaConnection(cfg, data, timeoutMs = 2500) {
+  const conn = cfg.connection || 'printer';
+  if (conn === 'tcp') return queryTcp(cfg.tcpHost, cfg.tcpPort || 9100, data, timeoutMs);
+  if (!IS_WIN) throw new Error('Reading from a USB or serial cutter works on Windows only.');
+  const file = writeTemp(data);
+  try {
+    if (conn === 'serial') {
+      if (!cfg.comPort) throw new Error('No COM port selected for this device.');
+      return await powershell(ensureScript('serial-query.ps1', SERIAL_QUERY_PS1), { Port: cfg.comPort, Baud: cfg.baud || 9600, Handshake: cfg.handshake || 'RequestToSend', FilePath: file, TimeoutMs: timeoutMs }, timeoutMs + 20000);
+    }
+    if (!cfg.printerName) throw new Error('No Windows printer selected for this device.');
+    return await powershell(ensureScript('usb-query.ps1', USB_QUERY_PS1), { PrinterName: cfg.printerName, FilePath: file, TimeoutMs: timeoutMs }, timeoutMs + 25000);
+  } finally {
+    fs.rm(file, { force: true }, () => {});
+  }
+}
+
 module.exports = {
   IS_WIN, clearPrinterQueue, sendToPrinterQueue, sendToSerial, sendToTcp, tcpReachable, listPrinters, listComPorts,
-  dropInHotFolder, waitForPickup, sendViaConnection,
+  dropInHotFolder, waitForPickup, sendViaConnection, queryViaConnection,
 };

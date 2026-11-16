@@ -791,3 +791,7 @@ details.adv[open] > summary { margin-bottom: 4px; }
 .ct .check input { margin-top: 2px; flex: none; }
 .ct select { background: var(--bg); border: 1px solid var(--line); border-radius: 7px; padding: 6px 8px; color: var(--text); width: 100%; }
 .ct input[type=range] { padding: 0; }
+.cw-poll { display: flex; gap: 6px; align-items: stretch; }
+.cw-poll .input-unit { flex: 1; min-width: 0; }
+.cw-poll .btn { white-space: nowrap; padding: 0 10px; font-size: 12.5px; }
+.dz-field small.error { color: #ff7a7f; }

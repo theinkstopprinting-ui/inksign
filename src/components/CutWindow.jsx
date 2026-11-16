@@ -35,11 +35,26 @@ function Preview({ job, mediaMm, pos }) {
   const fs = media / 28;
   const stroke = job.color && /^#/.test(job.color) && job.color.toLowerCase() !== '#ffffff' ? job.color : '#111111';
   const over = mediaMm > 0 && job.h + pos.y > mediaMm + 0.01;
+  const rulerStep = [1, 2, 6, 12, 24].find((n) => (media / MM) / n <= 14) || 48;
   return (
     <svg className="cw-svg" viewBox={`${-pad * 1.6} ${-pad * 0.5} ${media + pad * 3.1} ${len + pad * 1.9}`} preserveAspectRatio="xMidYMid meet">
       <rect x={0} y={0} width={media} height={len} fill="#fdfdfb" stroke="#9aa0aa" strokeWidth={sw} />
       {over && <rect x={X(job.h + pos.y)} y={Y(job.w + pos.x)} width={job.h + pos.y - mediaMm} height={job.w} fill="rgba(255,90,95,.35)" />}
       <path d={d} fill="none" stroke={stroke} strokeWidth={sw * 1.4} strokeLinejoin="round" />
+      {/* rulers from the origin, like Flexi's layout preview: inches across (right to left) and up the roll */}
+      <g stroke="#9aa0aa" strokeWidth={sw * 0.8} fill="#6b7280" fontSize={fs * 0.62} fontFamily="system-ui, sans-serif">
+        {Array.from({ length: Math.floor(media / MM) + 1 }, (_, i) => {
+          const major = i % rulerStep === 0;
+          return <g key={`ra${i}`}><line x1={X(i * MM)} y1={len} x2={X(i * MM)} y2={len - (major ? fs * 0.7 : fs * 0.3)} />{major && i > 0 && <text x={X(i * MM) + fs * 0.12} y={len - fs * 0.8} stroke="none">{i}</text>}</g>;
+        })}
+        {Array.from({ length: Math.floor(len / MM) + 1 }, (_, i) => {
+          const major = i % rulerStep === 0;
+          return <g key={`rl${i}`}><line x1={media} y1={Y(i * MM)} x2={media - (major ? fs * 0.7 : fs * 0.3)} y2={Y(i * MM)} />{major && i > 0 && <text x={media - fs * 0.85} y={Y(i * MM) - fs * 0.12} textAnchor="end" stroke="none">{i}</text>}</g>;
+        })}
+      </g>
+      {/* origin arrows: red = up the roll, blue = across */}
+      <path d={`M${media},${len}V${len - pad * 0.9}`} stroke="#e5482b" strokeWidth={sw * 2.2} fill="none" />
+      <path d={`M${media},${len}H${media - pad * 0.9}`} stroke="#2f6fed" strokeWidth={sw * 2.2} fill="none" />
       {/* the cutter */}
       <rect x={-pad * 0.9} y={len} width={media + pad * 1.8} height={pad * 0.55} rx={pad * 0.12} fill="#2b3340" />
       <rect x={-pad * 1.25} y={len - pad * 0.08} width={pad * 0.5} height={pad * 0.7} rx={pad * 0.1} fill="#3d6bd6" />
@@ -133,6 +148,15 @@ export default function CutWindow({ devices, groupsFor, hasCutLines, hasSelectio
     onSent(holdAll ? `Spooled ${jobs.length} cut job${jobs.length > 1 ? 's' : ''} for ${dev.name} — release them from the Job queue` : `Sent ${jobs.length} cut job${jobs.length > 1 ? 's' : ''} to ${dev.name}`);
     onClose();
   });
+  // Poll size (Flexi's button beside the material size): the cutter says how wide the loaded vinyl is
+  const [polling, setPolling] = useState(false);
+  const [polled, setPolled] = useState(null);
+  const [pollErr, setPollErr] = useState('');
+  useEffect(() => { setPolled(null); setPollErr(''); }, [dev?.id]);
+  const pollSize = async () => {
+    setPolling(true); setPollErr('');
+    try { const r = await api.cutter.pollSize(dev.id); setPolled(r); setMediaMm(r.acrossMm); } catch (e) { setPolled(null); setPollErr(String(e.message || e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')); } finally { setPolling(false); }
+  };
   const areaTest = () => run(async () => {
     const r = await api.cutter.areaTest(dev.id, [areaBox(cur)], overrides);
     setMsg(`${r.message}. Watch the blade go round ${jobs.length > 1 ? `“${cur.name}”` : 'the job'} — nothing is cut.`);
@@ -162,7 +186,13 @@ export default function CutWindow({ devices, groupsFor, hasCutLines, hasSelectio
                 <fieldset><legend>Vinyl cutter</legend>
                   <div className="dz-form">
                     <label className="dz-field"><span>Cutter</span><select value={dev?.id || ''} onChange={(e) => setDeviceId(e.target.value)}>{cutters.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}</select></label>
-                    <Inches label="Media width" value={mediaMm} onChange={setMediaMm} step={1} note="What you can cut across the roll" />
+                    <label className="dz-field"><span>Media width</span>
+                      <div className="cw-poll">
+                        <div className="input-unit"><input type="number" step={1} min={0} value={+(mediaMm / MM).toFixed(3)} onChange={(e) => { setMediaMm((parseFloat(e.target.value) || 0) * MM); setPolled(null); }} /><em>in</em></div>
+                        <button className="btn" disabled={polling || !dev} onClick={pollSize} title="Ask the cutter how wide the loaded vinyl is (the pinch rollers must be set and the cutter showing READY)">{polling ? 'Reading…' : 'Read from cutter'}</button>
+                      </div>
+                      <small className={pollErr ? 'error' : 'muted'}>{pollErr || (polled ? `The cutter reports ${(polled.acrossMm / MM).toFixed(2)}″ across${polled.alongMm > 0 ? `, ${polled.alongMm > 3000 ? 'a roll' : `${(polled.alongMm / MM).toFixed(1)}″ long`}` : ''}` : 'What you can cut across the roll')}</small>
+                    </label>
                     <label className="dz-field"><span>Job name</span><input type="text" value={name} onChange={(e) => setName(e.target.value)} /></label>
                     <label className="dz-field"><span>Quantity</span><div className="input-unit"><input type="number" min={1} step={1} value={o.copies} onChange={(e) => set({ copies: Math.max(1, parseInt(e.target.value, 10) || 1) })} /><em>copies</em></div></label>
                     {o.copies > 1 && <Inches label="Space between copies" value={o.copyGapMm} onChange={(v) => set({ copyGapMm: v })} step={0.0625} />}

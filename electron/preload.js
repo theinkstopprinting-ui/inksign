@@ -24,6 +24,7 @@ contextBridge.exposeInMainWorld('inksign', {
   cutter: {
     jog: (id, move) => ipcRenderer.invoke('cutter:jog', id, move),
     areaTest: (id, paths, overrides) => ipcRenderer.invoke('cutter:areaTest', id, paths, overrides),
+    pollSize: (id) => ipcRenderer.invoke('cutter:pollSize', id),
     setStart: (id, here) => ipcRenderer.invoke('cutter:setStart', id, here),
     roll: (id, patch) => ipcRenderer.invoke('cutter:roll', id, patch),
     pause: (id, paused) => ipcRenderer.invoke('cutter:pause', id, paused),

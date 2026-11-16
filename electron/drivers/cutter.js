@@ -2,7 +2,7 @@
 const fs = require('fs');
 const path = require('path');
 const T = require('../transports');
-const { generate, testPattern, jobExtent, moveTo, areaTrace, bounds } = require('../lib/cutterLang');
+const { generate, testPattern, jobExtent, moveTo, areaTrace, bounds, sizeQueries, parseSizeReplies } = require('../lib/cutterLang');
 
 const fields = [
   { key: 'connection', label: 'Connected by', type: 'select', default: 'printer',
@@ -87,6 +87,15 @@ async function areaTest(cfg, paths) {
 }
 
 // Blade up, move to x,y mm from the origin set on the cutter.
+/** Poll size: ask the cutter what media is loaded */
+async function pollSize(cfg) {
+  const miss = missing(cfg);
+  if (miss.length) throw new Error(`Set up the cutter first: ${miss.join(', ')}`);
+  const replies = [];
+  for (const q of sizeQueries(cfg)) replies.push(await T.queryViaConnection(cfg, Buffer.from(q, 'latin1')));
+  return parseSizeReplies(replies, cfg);
+}
+
 async function jog(cfg, x, y) {
   const data = Buffer.from(moveTo(x, y, cfg), 'latin1');
   await T.sendViaConnection(cfg, data, 'InkSign jog');
@@ -114,5 +123,5 @@ async function sendFile(cfg, filePath, { jobName } = {}) {
 
 module.exports = {
   id: 'cutter', name: 'Vinyl / contour cutter (HP-GL / GP-GL)', kind: 'cutter',
-  fields, fileTypes: PASSTHROUGH, missing, checkStatus, sendTest, sendFile, sendPaths, jog, cancelSpool, areaTest,
+  fields, fileTypes: PASSTHROUGH, missing, checkStatus, sendTest, sendFile, sendPaths, jog, cancelSpool, areaTest, pollSize,
 };

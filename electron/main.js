@@ -491,6 +491,11 @@ function registerIpc() {
     const shift = ov.absolute ? {} : { shiftX: (Number(st.startX) || 0) + (st.continueRoll ? (Number(st.rollUsedMm) || 0) : 0), shiftY: Number(st.startY) || 0 };
     return drivers.get(d.driver).areaTest({ ...d.config, ...ov, ...shift }, paths);
   });
+  // Poll size: read the loaded media size from the cutter
+  ipcMain.handle('cutter:pollSize', async (_e, id) => {
+    const d = cutterOf(id);
+    return drivers.get(d.driver).pollSize(d.config);
+  });
   ipcMain.handle('printcut:savePdf', async (_e, job) => {
     const r = await dialog.showSaveDialog(win, { title: 'Save print file', defaultPath: `${safe(job.name)}.pdf`, filters: [{ name: 'PDF', extensions: ['pdf'] }] });
     if (r.canceled || !r.filePath) return null;
