@@ -5,9 +5,9 @@ const clean = (m) => String(m || '').replace(/^Error invoking remote method '[^'
 
 // Checked top to bottom; the first match wins, so the most specific come first.
 const TARGETS = [
-  { id: 'printcut', label: 'Print & Cut', kinds: ['sticker', 'label', 'print & cut', 'print and cut', 'contour', 'die-cut', 'die cut', 'kiss cut'] },
-  { id: 'studio', label: 'Cut Studio', kinds: ['vinyl', 'decal', 'lettering', 'heat transfer', 'htv', 'cut vinyl'] },
-  { id: 'wide', label: 'Wide Format', kinds: ['banner', 'sign', 'rigid', 'coroplast', 'canvas', 'poster', 'wide', 'mesh'] },
+  { id: 'printcut', label: 'Design & Cut — print & cut', kinds: ['sticker', 'label', 'print & cut', 'print and cut', 'contour', 'die-cut', 'die cut', 'kiss cut'] },
+  { id: 'studio', label: 'Design & Cut — cut vinyl', kinds: ['vinyl', 'decal', 'lettering', 'heat transfer', 'htv', 'cut vinyl'] },
+  { id: 'wide', label: 'Design & Cut — wide format print', kinds: ['banner', 'sign', 'rigid', 'coroplast', 'canvas', 'poster', 'wide', 'mesh'] },
   { id: 'press', label: 'Press (Xerox)', kinds: ['card', 'flyer', 'postcard', 'brochure', 'booklet', 'paper', 'xerox', 'menu'] },
 ];
 

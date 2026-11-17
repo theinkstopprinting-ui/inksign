@@ -45,3 +45,16 @@ test('apply adds a cut line on top, or a solid outline underneath', () => {
   assert.equal(fill.doc.objects[0].fill.color, '#ff0000'); assert.ok(!fill.doc.objects[0].cut);
   assert.throws(() => FX.contourApply(d, [a.id], []));
 });
+
+test('stencil bridges and knockout (moved in from the old Cut Studio)', () => {
+  const o = D.shapeFromPaths(ring(10, 10, 60, 60, 15), { fillRule: 'evenodd' });
+  const d = docWith(o);
+  const st = FX.stencil(d, [o.id], { widthMm: 3, direction: 'vertical' });
+  assert.equal(st.doc.objects.length, 1);
+  assert.equal(st.doc.objects[0].name, 'Stencil');
+  const solid = D.shapeFromPaths(box(10, 10, 40, 40));
+  assert.throws(() => FX.stencil(docWith(solid), [solid.id]), /No islands/);
+  const ko = FX.knockoutBlock(docWith(solid), [solid.id], { marginMm: 10 });
+  const s = span(D.placedPaths(ko.doc.objects[0]));
+  assert.ok(Math.abs(s.w - 60) < 0.1 && Math.abs(s.h - 60) < 0.1, JSON.stringify(s));
+});

@@ -97,7 +97,7 @@ function Preview({ job, mediaMm, pos, onMove }) {
   );
 }
 
-export default function CutWindow({ devices, groupsFor, hasCutLines, hasSelection, defaultName, onClose, onSent }) {
+export default function CutWindow({ devices, groupsFor, hasCutLines, hasSelection, defaultName, onClose, onSent, inkflow }) {
   const cutters = devices.filter((d) => d.kind === 'cutter');
   const [deviceId, setDeviceId] = useState(load('cutter', '') || cutters[0]?.id || '');
   const dev = cutters.find((d) => d.id === deviceId) || cutters[0];
@@ -170,7 +170,7 @@ export default function CutWindow({ devices, groupsFor, hasCutLines, hasSelectio
   }));
   const send = (holdAll) => run(async () => {
     save('cutter', dev.id); save('weedOffsetMm', o.weedOffsetMm);
-    await api.jobs.sendCut(dev.id, { name, panels: panelsOut(holdAll), overrides });
+    await api.jobs.sendCut(dev.id, { name, panels: panelsOut(holdAll), overrides, inkflow: inkflow || undefined });
     onSent(holdAll ? `Spooled ${jobs.length} cut job${jobs.length > 1 ? 's' : ''} for ${dev.name} — release them from the Job queue` : `Sent ${jobs.length} cut job${jobs.length > 1 ? 's' : ''} to ${dev.name}`);
     onClose();
   });

@@ -25,6 +25,7 @@ import Canvas from './Canvas.jsx';
 import { PageProps, ObjectProps, FillStroke, ObjectList, SIGN_SWATCHES, PAGE_PRESETS, MM } from './Panels.jsx';
 import Icon from './icons.jsx';
 import ContourPanel from './ContourPanel.jsx';
+import AlignTest from './AlignTest.jsx';
 import { ParamDialog, PrintCutDialog, JobInfo, Modal } from './Dialogs.jsx';
 import CutWindow from '../CutWindow.jsx';
 
@@ -94,7 +95,7 @@ function imageToDataUrl(img) {
 }
 const b64ToBytes = (b64) => Uint8Array.from(atob(b64), (ch) => ch.charCodeAt(0));
 
-export default function Design({ devices, jobs = [], active, onJobsSent }) {
+export default function Design({ devices, jobs = [], active, onJobsSent, incoming, go, onDevicesChanged }) {
   const [doc, setDoc] = useState(() => D.newDoc({ widthIn: 24, heightIn: 12 }));
   const [sel, setSel] = useState([]);
   const [tool, setTool] = useState('select');
@@ -380,6 +381,23 @@ export default function Design({ devices, jobs = [], active, onJobsSent }) {
     return D.shapeFromPaths(placed, { name: `${o.name} (traced)`, fill: { type: 'solid', color: '#000000' }, fillRule: 'evenodd' });
   };
 
+  // ---- artwork handed over from the Orders page: opens in its own design tab, linked to the order ----
+  const lastIncoming = useRef(0);
+  useEffect(() => {
+    if (!incoming || incoming.target !== 'design' || incoming.seq === lastIncoming.current) return;
+    lastIncoming.current = incoming.seq;
+    const files = (incoming.files || []).map((f) => {
+      if (f.ext === 'svg' || f.ext === 'dxf') return { name: f.name, ext: f.ext, text: f.text };
+      if (f.ext === 'png' || f.ext === 'jpg' || f.ext === 'jpeg') return { name: f.name, ext: f.ext, dataUrl: `data:image/${f.ext === 'png' ? 'png' : 'jpeg'};base64,${f.base64}` };
+      if (f.ext === 'pdf' || f.ext === 'ai' || f.ext === 'eps') return { name: f.name, ext: f.ext, base64: f.base64 };
+      return { name: f.name, error: `${f.name}: this kind of file can't be opened here` };
+    });
+    const d = { ...blank(), name: incoming.name || 'Order', order: incoming.inkflow ? { ...incoming.inkflow, label: incoming.label } : undefined };
+    if (isEmpty()) { hist.current = D.history(120); live(d); setFilePath(null); setSel([]); } else addTab(d);
+    setWelcome(false);
+    importFiles(files).then(() => { setDirty(true); setTimeout(() => canvas.current?.fit(), 60); flash(`${incoming.label ? `Order ${incoming.label}: ` : ''}artwork opened — ${incoming.want === 'printcut' ? 'use Print & Cut when it is laid out' : incoming.want === 'studio' ? 'use Cut when it is laid out' : 'use Print when it is laid out'}`); });
+  }, [incoming]);
+
   // ---- Create Cut Contour panel + registration marks on the design ----
   const contourCompute = async (p) => {
     const objs = docRef.current.objects.filter((o) => sel.includes(o.id) && !o.hidden);
@@ -596,7 +614,17 @@ export default function Design({ devices, jobs = [], active, onJobsSent }) {
       ...pick('Arrange', 'Group', 'Ungroup', null), ...pick('Edit', 'Duplicate'), ...pick('Arrange', 'Lock', 'Unlock all', 'Hide', 'Show all'), null,
       ['Object list', () => setTab('objects')], ['Object properties', () => setTab('props')],
     ],
-    Effects: pick('Effects', 'Outline…', 'Shadow…', 'Blend…', 'Distort…', 'Stripe…', null, 'Rhinestone', 'Rectangle finisher', 'Shape finisher', 'Trim marks'),
+    Effects: [
+      ...pick('Effects', 'Outline…', 'Shadow…', 'Blend…', 'Distort…', 'Stripe…', null, 'Rhinestone'),
+      ['Stencil bridges…', () => PD('stencil', 'Stencil bridges', [
+        { key: 'w', label: 'Bridge width', type: 'in', default: 3, step: 0.01, help: 'Joins the middles of O, A, R, B… to the stencil' },
+        { key: 'dir', label: 'Bridges run', type: 'select', default: 'vertical', options: [['vertical', 'Up and down'], ['horizontal', 'Left and right']] },
+      ], (v) => fx((d) => FX.stencil(d, ids, { widthMm: Math.max(0.5, v.w), direction: v.dir }))), '', !S(1)],
+      ['Knockout (block with the design cut out)…', () => PD('knockout', 'Knockout', [
+        { key: 'm', label: 'Margin around the design', type: 'in', default: 12.7 }, { key: 'r', label: 'Corner radius', type: 'in', default: 0 },
+      ], (v) => fx((d) => FX.knockoutBlock(d, ids, { marginMm: Math.max(0, v.m), radiusMm: Math.max(0, v.r) }))), '', !S(1)],
+      null, ...pick('Effects', 'Rectangle finisher', 'Shape finisher', 'Trim marks'),
+    ],
     Images: [
       ['Import a picture…', () => doImport(false)], null,
       ['Vectorize (trace the picture to shapes)…', () => traceDlg(false), '', !pic],
@@ -621,13 +649,18 @@ export default function Design({ devices, jobs = [], active, onJobsSent }) {
     Tools: [
       sendCut, wizard, null, ...pick('Effects', 'Create cut contour…', 'Rectangle contour cut', 'Page contour cut'), null,
       [doc.marks ? 'Change registration marks…' : 'Place registration marks…', marksDlg], ['Remove registration marks', removeMarks, '', !doc.marks], null,
+      ['Print & cut alignment test…', () => setDialog({ kind: 'align' })], null,
       ...pick('Text', 'QR code', 'Barcode'), null, ['Nudge distance…', nudgeDlg], ...pick('View', 'Grid spacing'), ...pick('File', 'Job info'),
     ],
     Window: [
       ['New design', newDoc, 'Ctrl+N'], ['Close this design', () => closeTab(tabId)], null,
       ...tabs.map((t) => { const d = t.id === tabId ? doc : parked.current.get(t.id)?.doc; return [check(t.id === tabId, d?.name || 'Untitled'), () => switchTab(t.id)]; }),
     ],
-    Help: [['Keyboard shortcuts…', () => setDialog({ kind: 'keys' })]],
+    Help: [
+      ['Keyboard shortcuts…', () => setDialog({ kind: 'keys' })], null,
+      // the three older screens this workspace replaces, kept until nothing is missed
+      ['Older screen: Vinyl Cut Studio', () => go && go('studio')], ['Older screen: Print & Cut sheets', () => go && go('printcut')], ['Older screen: Wide Format roll layout', () => go && go('wide')],
+    ],
   };
   function caseAll(mode) {
     Promise.all(textObjs.map((o) => retext(o, { text: changeCase(o.text, mode) })))
@@ -1031,12 +1064,13 @@ export default function Design({ devices, jobs = [], active, onJobsSent }) {
         <PrintWindow devices={devices} jobs={jobs} source={{ scene: dialog.scene }} previewPdfBase64={dialog.preview} jobSize={{ w: dialog.scene.w, h: dialog.scene.h }}
           name={doc.name} hasCutLines={dialog.scene.items.some((i) => i.cut)} onClose={() => setDialog(null)} onSent={(t) => { flash(t); onJobsSent && onJobsSent(); }} />
       )}
-      {dialog?.kind === 'cut' && <CutWindow devices={devices} groupsFor={(what, onlySel) => cutGroups(docRef.current, what, onlySel ? sel : null)} hasCutLines={cutLines.length > 0} hasSelection={sel.length > 0} defaultName={doc.name} onClose={() => setDialog(null)} onSent={(m) => { flash(m); onJobsSent && onJobsSent(); }} />}
+      {dialog?.kind === 'cut' && <CutWindow inkflow={doc.order} devices={devices} groupsFor={(what, onlySel) => cutGroups(docRef.current, what, onlySel ? sel : null)} hasCutLines={cutLines.length > 0} hasSelection={sel.length > 0} defaultName={doc.name} onClose={() => setDialog(null)} onSent={(m) => { flash(m); onJobsSent && onJobsSent(); }} />}
       {dialog?.kind === 'printcut' && (
         <PrintCutDialog devices={devices} doc={doc} sceneFor={(marks) => toScene(docRef.current, { marks })} cutPaths={cutLines} defaultName={doc.name}
           onClose={() => setDialog(null)} onSent={(t) => flash(t)}
           onAddCut={() => { const all = doc.objects.filter((o) => !o.cut && !o.hidden).map((o) => o.id); if (all.length) fx((d) => FX.contourCut(d, all, { offsetMm: 1.5875 })); }} />
       )}
+      {dialog?.kind === 'align' && <AlignTest devices={devices} onDevicesChanged={onDevicesChanged} onClose={() => setDialog(null)} />}
       {dialog?.kind === 'keys' && (
         <Modal title="Keyboard shortcuts" onClose={() => setDialog(null)} foot={<span />}>
           <div className="dz-keys">{SHORTCUTS.map(([k, t]) => <React.Fragment key={k}><kbd>{k}</kbd><span>{t}</span></React.Fragment>)}</div>

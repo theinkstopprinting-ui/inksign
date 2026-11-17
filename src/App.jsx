@@ -25,10 +25,7 @@ const api = window.inksign;
 const NAV = [
   { items: [['home', 'Home', 'home', 'Start here — pick what you are making']] },
   { title: 'Make', items: [
-    ['design', 'Design', 'design', 'Lay out and design signs — open PDF, AI, EPS'],
-    ['studio', 'Vinyl (Cut Studio)', 'vinyl', 'Cut lettering, logos and decals'],
-    ['printcut', 'Print & Cut', 'sticker', 'Stickers and labels: print, then contour-cut'],
-    ['wide', 'Wide Format (HP)', 'banner', 'Banners, signs and canvas on the HP Latex'],
+    ['design', 'Design & Cut', 'design', 'Lay out, print, cut and print & cut'],
     ['press', 'Press (Xerox)', 'press', 'Cards, flyers and booklets on the Xerox'],
   ] },
   { title: 'Run', items: [
@@ -49,6 +46,12 @@ const NAV = [
   ] },
 ];
 const LABEL = Object.fromEntries(NAV.flatMap((g) => g.items.map(([id, label, , help]) => [id, { label, help }])));
+// The three older screens Design & Cut replaces: off the menu, still reachable from Design › Help.
+Object.assign(LABEL, {
+  studio: { label: 'Vinyl Cut Studio (older screen)', help: 'Now part of Design & Cut' },
+  printcut: { label: 'Print & Cut sheets (older screen)', help: 'Now part of Design & Cut' },
+  wide: { label: 'Wide Format roll layout (older screen)', help: 'Now part of Design & Cut' },
+});
 const FULL = ['design', 'studio', 'printcut', 'press', 'wide', 'mockup'];
 const NARROW_KEY = 'inksign.navNarrow';
 
@@ -115,8 +118,10 @@ export default function App() {
 
   // Orders page hands artwork to a tool
   const openIn = (target, payload) => {
-    setIncoming({ ...payload, target, label: `${payload.order?.number || ''}`, seq: Date.now() });
-    setTab(target);
+    // vinyl, print & cut and wide format work all open in Design & Cut now; only Xerox work goes to Press
+    const to = target === 'press' ? 'press' : 'design';
+    setIncoming({ ...payload, target: to, want: target, label: `${payload.order?.number || ''}`, seq: Date.now() });
+    setTab(to);
   };
 
   if (!catalog || !userState) return <div className="loading">Starting InkSign…</div>;
@@ -176,8 +181,8 @@ export default function App() {
         </header>
       <main key={reloadKey} className={`content ${FULL.includes(tab) ? 'content-full' : ''}`}>
         {tab === 'home' && <Home devices={devices} statuses={statuses} jobs={jobs} userName={userState.current?.name} go={setTab} />}
-        {/* The four tools stay mounted so work isn't lost when you switch pages */}
-        <div style={{ display: tab === 'design' ? 'contents' : 'none' }}><Design devices={devices} jobs={jobs} active={tab === 'design'} onJobsSent={() => {}} /></div>
+        {/* The tools stay mounted so work isn't lost when you switch pages */}
+        <div style={{ display: tab === 'design' ? 'contents' : 'none' }}><Design devices={devices} jobs={jobs} active={tab === 'design'} onJobsSent={() => {}} incoming={incoming} go={setTab} onDevicesChanged={reloadDevices} /></div>
         <div style={{ display: tab === 'studio' ? 'contents' : 'none' }}><CutStudio devices={devices} jobs={jobs} incoming={incoming} onJobsSent={() => setTab('queue')} /></div>
         <div style={{ display: tab === 'printcut' ? 'contents' : 'none' }}><PrintCut devices={devices} incoming={incoming} onDevicesChanged={reloadDevices} /></div>
         <div style={{ display: tab === 'wide' ? 'contents' : 'none' }}><WideFormat devices={devices} incoming={incoming} onJobsSent={() => setTab('queue')} /></div>

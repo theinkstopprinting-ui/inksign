@@ -798,3 +798,5 @@ details.adv[open] > summary { margin-bottom: 4px; }
 .cw-place { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
 .cw-place .muted { margin-right: 4px; }
 .cw-svg { touch-action: none; user-select: none; }
+.dz-form.at-form { display: flex; flex-direction: column; gap: 12px; }
+.dz-grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }

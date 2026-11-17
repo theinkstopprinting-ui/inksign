@@ -3,7 +3,7 @@
 // Stripe, Rhinestone Fill, Finisher (grommets), Trim Marks, Page Contour Cut, Break Apart.
 // Each takes (doc, ids, options) and returns { doc, ids } — the new selection.
 import { isClosed, bounds } from './geometry.js';
-import { boolean, weld, groupShapes, rhinestones } from './cuttools.js';
+import { boolean, weld, groupShapes, rhinestones, stencilBridges, knockout } from './cuttools.js';
 import { offsetPaths } from './offset.js';
 import { envelope } from './design.js';
 import { ellipse, rectangle } from './shapes.js';
@@ -38,6 +38,24 @@ function solidOf(objs) {
   return parts.length ? weld(parts) : [];
 }
 const mk = (paths, like, extra = {}) => shapeFromPaths(paths, { fill: like.fill, stroke: like.stroke, name: like.name, fillRule: 'evenodd', ...extra });
+
+// ---------- Stencils (from the old Cut Studio) ----------
+/** Stencil bridges: join the middles of O, A, R, B… to the rest of the stencil so they don't fall out */
+export function stencil(doc, ids, { widthMm = 3, direction = 'vertical' } = {}) {
+  const objs = sel(doc, ids).filter(isVector);
+  if (!objs.length) throw new Error('Select the lettering or shapes to make a stencil from');
+  const r = stencilBridges(weld(objs.flatMap(closedOf)), { widthMm, direction });
+  if (!r.bridged) throw new Error('No islands to bridge here (no letters like O, A, B, D, R)');
+  return replace(doc, objs.map((o) => o.id), [mk(r.paths, objs[0], { name: 'Stencil' })]);
+}
+/** Knockout: a solid block with the design cut out of it */
+export function knockoutBlock(doc, ids, { marginMm = 12.7, radiusMm = 0 } = {}) {
+  const objs = sel(doc, ids).filter(isVector);
+  if (!objs.length) throw new Error('Select the lettering or shapes to knock out');
+  const p = knockout(weld(objs.flatMap(closedOf)), { marginMm, radiusMm });
+  if (!p.length) throw new Error('Knockout needs closed shapes');
+  return replace(doc, objs.map((o) => o.id), [mk(p, objs[0], { name: 'Knockout' })]);
+}
 
 // ---------- Combine ----------
 export const COMBINE = [

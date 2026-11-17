@@ -5,9 +5,7 @@ const api = window.inksign;
 
 // What people come to InkSign to make — each opens the right tool
 const MAKE = [
-  { tab: 'studio', icon: 'vinyl', title: 'Vinyl lettering & decals', text: 'Cut text, logos and shapes on the Graphtec, Titan or Kona.' },
-  { tab: 'printcut', icon: 'sticker', title: 'Stickers & labels', text: 'Print, then contour-cut — Xerox sheets or HP rolls.' },
-  { tab: 'wide', icon: 'banner', title: 'Banners, signs & canvas', text: 'Lay out on the HP Latex roll — nest, tile, hems, grommets.' },
+  { tab: 'design', icon: 'design', title: 'Vinyl, stickers, banners & signs', text: 'Design & Cut: lay it out once, then print on the HP, cut on the Graphtec, Titan or Kona, or print & contour-cut.' },
   { tab: 'press', icon: 'press', title: 'Cards, flyers & booklets', text: 'Step & repeat, booklets and finishing on the Xerox.' },
 ];
 
