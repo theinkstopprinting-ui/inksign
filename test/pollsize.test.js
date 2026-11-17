@@ -22,3 +22,9 @@ test('no answer and nonsense answers are explained', () => {
   assert.throws(() => parseSizeReplies(['CE6000\r'], {}), /not a size/);
   assert.throws(() => parseSizeReplies(['0,0,100,100\r'], { unitsPerMm: 40 }), /not a usable width/);
 });
+
+test('the Graphtec answers in 0.1 mm steps: the size matches its CUT AREA screen', () => {
+  const r = parseSizeReplies(['0,0,50000,2976\r'], { language: 'hpgl', hpglStyle: 'graphtec', unitsPerMm: 40 });
+  assert.ok(Math.abs(r.alongMm / 25.4 - 196.85) < 0.01);
+  assert.ok(Math.abs(r.acrossMm / 25.4 - 11.717) < 0.01);
+});

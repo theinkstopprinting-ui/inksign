@@ -229,7 +229,9 @@ function sizeQueries(cfg = {}) {
 function parseSizeReplies(replies, cfg = {}) {
   const nums = replies.flatMap((r) => (String(r || '').match(/-?\d+(?:\.\d+)?/g) || []).map(Number));
   if (nums.length < 4) throw new Error(nums.length ? `The cutter's answer was not a size: "${replies.join(' ').replace(/[^\x20-\x7e]/g, ' ').trim().slice(0, 60)}"` : 'The cutter did not answer. Is the media loaded, and the cutter showing READY?');
-  const upm = Number(cfg.unitsPerMm) || (cfg.language === 'gpgl' ? 10 : 40);
+  // Graphtec answers in 0.1 mm steps even when it is cutting HP-GL at 40 units per mm
+  // (checked on the shop's CE6000-60 Plus: its CUT AREA screen read 196.850″ × 11.717″ for an answer of 50000 × 2976).
+  const upm = Number(cfg.pollUnitsPerMm) || (cfg.language === 'gpgl' || cfg.hpglStyle === 'graphtec' ? 10 : Number(cfg.unitsPerMm) || 40);
   const [x0, y0, x1, y1] = nums;
   const alongMm = Math.abs(x1 - x0) / upm, acrossMm = Math.abs(y1 - y0) / upm;
   if (!(acrossMm >= 20 && acrossMm <= 3000)) throw new Error(`The cutter answered ${nums.slice(0, 4).join(', ')}, which is not a usable width`);
