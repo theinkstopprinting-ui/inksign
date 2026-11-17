@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { planCut, areaBox, usageReport, TOOL_PRESETS, MM } from '../lib/cutPlan.js';
 
 // "Send to be Cut" — the cut window, laid out like VinylMaster's: General, Cutter control, Settings and
@@ -22,49 +22,75 @@ const Check = ({ label, checked, onChange, title }) => (
   <label className="check" title={title}><input type="checkbox" checked={!!checked} onChange={(e) => onChange(e.target.checked)} /> {label}</label>
 );
 
-// The vinyl hanging out of the cutter: origin at the bottom right like the machine, across the roll = left-right
-function Preview({ job, mediaMm, pos }) {
+// The vinyl coming out of the cutter toward you: the cutter is along the top, the origin is at its
+// right-hand end, the roll runs down the picture and "across" is right to left. Lettering is drawn the
+// way it comes out on the vinyl. Drag the job to place it on the roll.
+function Preview({ job, mediaMm, pos, onMove }) {
+  const svg = useRef(null);
+  const drag = useRef(null);
+  const [dragging, setDragging] = useState(false);
   if (!job) return <div className="cw-empty">Nothing to cut.</div>;
   const media = Math.max(mediaMm || 0, job.h + pos.y, 50);
   const len = Math.max(job.w + pos.x + 20, media * 0.45);
   const pad = media * 0.12;
   const X = (y) => media - y;          // across the roll, from the right edge
-  const Y = (x) => len - x;            // along the roll, up from the cutter
-  const d = job.paths.map((p) => `M${p.map((q) => `${X(q.y + pos.y).toFixed(2)},${Y(q.x + pos.x).toFixed(2)}`).join('L')}`).join('');
+  const Y = (x) => x;                  // along the roll, down from the cutter
+  const d = job.paths.map((p) => `M${p.map((q) => `${X(q.y).toFixed(2)},${Y(q.x).toFixed(2)}`).join('L')}`).join('');
   const sw = media / 500;
   const fs = media / 28;
   const stroke = job.color && /^#/.test(job.color) && job.color.toLowerCase() !== '#ffffff' ? job.color : '#111111';
   const over = mediaMm > 0 && job.h + pos.y > mediaMm + 0.01;
   const rulerStep = [1, 2, 6, 12, 24].find((n) => (media / MM) / n <= 14) || 48;
+  // dragging: screen millimetres come from the drawing's own scale, so it tracks the pointer exactly
+  const toMm = (e) => { const m = svg.current.getScreenCTM(); return { x: (e.clientX - m.e) / m.a, y: (e.clientY - m.f) / m.d }; };
+  const down = (e) => { if (!onMove) return; e.preventDefault(); e.currentTarget.setPointerCapture(e.pointerId); drag.current = { at: toMm(e), pos }; setDragging(true); };
+  const move = (e) => {
+    if (!drag.current) return;
+    const now = toMm(e), st = drag.current;
+    const maxY = mediaMm > 0 ? Math.max(0, mediaMm - job.h) : Infinity;
+    let y = Math.min(maxY, Math.max(0, st.pos.y - (now.x - st.at.x)));
+    const x = Math.max(0, st.pos.x + (now.y - st.at.y));
+    const mid = mediaMm > 0 ? (mediaMm - job.h) / 2 : -1;
+    if (mid >= 0 && Math.abs(y - mid) < media * 0.012) y = mid;      // snaps to the middle of the roll
+    onMove({ x, y });
+  };
+  const up = () => { drag.current = null; setDragging(false); };
+  const centered = mediaMm > 0 && Math.abs(pos.y - (mediaMm - job.h) / 2) < 0.05;
   return (
-    <svg className="cw-svg" viewBox={`${-pad * 1.6} ${-pad * 0.5} ${media + pad * 3.1} ${len + pad * 1.9}`} preserveAspectRatio="xMidYMid meet">
+    <svg ref={svg} className="cw-svg" viewBox={`${-pad * 1.6} ${-pad * 1.5} ${media + pad * 3.1} ${len + pad * 2}`} preserveAspectRatio="xMidYMid meet">
       <rect x={0} y={0} width={media} height={len} fill="#fdfdfb" stroke="#9aa0aa" strokeWidth={sw} />
-      {over && <rect x={X(job.h + pos.y)} y={Y(job.w + pos.x)} width={job.h + pos.y - mediaMm} height={job.w} fill="rgba(255,90,95,.35)" />}
-      <path d={d} fill="none" stroke={stroke} strokeWidth={sw * 1.4} strokeLinejoin="round" />
-      {/* rulers from the origin, like Flexi's layout preview: inches across (right to left) and up the roll */}
+      {over && <rect x={X(job.h + pos.y)} y={Y(pos.x)} width={job.h + pos.y - mediaMm} height={job.w} fill="rgba(255,90,95,.35)" />}
+      {/* rulers from the origin: inches across (right to left) and down the roll */}
       <g stroke="#9aa0aa" strokeWidth={sw * 0.8} fill="#6b7280" fontSize={fs * 0.62} fontFamily="system-ui, sans-serif">
         {Array.from({ length: Math.floor(media / MM) + 1 }, (_, i) => {
           const major = i % rulerStep === 0;
-          return <g key={`ra${i}`}><line x1={X(i * MM)} y1={len} x2={X(i * MM)} y2={len - (major ? fs * 0.7 : fs * 0.3)} />{major && i > 0 && <text x={X(i * MM) + fs * 0.12} y={len - fs * 0.8} stroke="none">{i}</text>}</g>;
+          return <g key={`ra${i}`}><line x1={X(i * MM)} y1={0} x2={X(i * MM)} y2={major ? fs * 0.7 : fs * 0.3} />{major && i > 0 && <text x={X(i * MM) + fs * 0.12} y={fs * 1.3} stroke="none">{i}</text>}</g>;
         })}
         {Array.from({ length: Math.floor(len / MM) + 1 }, (_, i) => {
           const major = i % rulerStep === 0;
-          return <g key={`rl${i}`}><line x1={media} y1={Y(i * MM)} x2={media - (major ? fs * 0.7 : fs * 0.3)} y2={Y(i * MM)} />{major && i > 0 && <text x={media - fs * 0.85} y={Y(i * MM) - fs * 0.12} textAnchor="end" stroke="none">{i}</text>}</g>;
+          return <g key={`rl${i}`}><line x1={media} y1={Y(i * MM)} x2={media - (major ? fs * 0.7 : fs * 0.3)} y2={Y(i * MM)} />{major && i > 0 && <text x={media - fs * 0.85} y={Y(i * MM) + fs * 0.7} textAnchor="end" stroke="none">{i}</text>}</g>;
         })}
       </g>
-      {/* origin arrows: red = up the roll, blue = across */}
-      <path d={`M${media},${len}V${len - pad * 0.9}`} stroke="#e5482b" strokeWidth={sw * 2.2} fill="none" />
-      <path d={`M${media},${len}H${media - pad * 0.9}`} stroke="#2f6fed" strokeWidth={sw * 2.2} fill="none" />
+      {/* middle of the roll */}
+      {mediaMm > 0 && <line x1={media / 2} y1={0} x2={media / 2} y2={len} stroke={centered ? '#22a565' : '#c3c8d1'} strokeWidth={sw * (centered ? 1.6 : 0.8)} strokeDasharray={`${sw * 8} ${sw * 6}`} />}
+      {/* the job: drag it to place it */}
+      <g transform={`translate(${-pos.y} ${pos.x})`} style={{ cursor: onMove ? (dragging ? 'grabbing' : 'grab') : 'default' }} onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={up}>
+        <rect x={X(job.h)} y={0} width={job.h} height={job.w} fill={dragging ? 'rgba(47,111,237,.10)' : 'rgba(47,111,237,.04)'} stroke="#2f6fed" strokeWidth={sw * 0.9} strokeDasharray={`${sw * 5} ${sw * 4}`} />
+        <path d={d} fill="none" stroke={stroke} strokeWidth={sw * 1.4} strokeLinejoin="round" pointerEvents="none" />
+      </g>
+      {/* origin arrows: red = down the roll, blue = across */}
+      <path d={`M${media},0V${pad * 0.9}`} stroke="#e5482b" strokeWidth={sw * 2.2} fill="none" />
+      <path d={`M${media},0H${media - pad * 0.9}`} stroke="#2f6fed" strokeWidth={sw * 2.2} fill="none" />
       {/* the cutter */}
-      <rect x={-pad * 0.9} y={len} width={media + pad * 1.8} height={pad * 0.55} rx={pad * 0.12} fill="#2b3340" />
-      <rect x={-pad * 1.25} y={len - pad * 0.08} width={pad * 0.5} height={pad * 0.7} rx={pad * 0.1} fill="#3d6bd6" />
-      <rect x={media + pad * 0.75} y={len - pad * 0.08} width={pad * 0.5} height={pad * 0.7} rx={pad * 0.1} fill="#3d6bd6" />
-      <circle cx={media} cy={len} r={sw * 5} fill="#e5482b" />
+      <rect x={-pad * 0.9} y={-pad * 0.55} width={media + pad * 1.8} height={pad * 0.55} rx={pad * 0.12} fill="#2b3340" />
+      <rect x={-pad * 1.25} y={-pad * 0.62} width={pad * 0.5} height={pad * 0.7} rx={pad * 0.1} fill="#3d6bd6" />
+      <rect x={media + pad * 0.75} y={-pad * 0.62} width={pad * 0.5} height={pad * 0.7} rx={pad * 0.1} fill="#3d6bd6" />
+      <circle cx={media} cy={0} r={sw * 5} fill="#e5482b" />
       {/* sizes */}
       <g stroke="#7a8190" strokeWidth={sw} fill="#c9ced8" fontSize={fs} fontFamily="system-ui, sans-serif">
-        <line x1={X(job.h + pos.y)} y1={len + pad * 0.85} x2={X(pos.y)} y2={len + pad * 0.85} />
-        <text x={X(pos.y + job.h / 2)} y={len + pad * 0.85 + fs * 1.15} textAnchor="middle" stroke="none">{(job.h / MM).toFixed(2)} in across</text>
-        <line x1={-pad * 0.55} y1={Y(job.w + pos.x)} x2={-pad * 0.55} y2={Y(pos.x)} />
+        <line x1={X(job.h + pos.y)} y1={-pad * 0.85} x2={X(pos.y)} y2={-pad * 0.85} />
+        <text x={X(pos.y + job.h / 2)} y={-pad * 0.85 - fs * 0.45} textAnchor="middle" stroke="none">{(job.h / MM).toFixed(2)} in across{pos.y > 0.05 ? ` · ${(pos.y / MM).toFixed(2)} in from the right` : ''}</text>
+        <line x1={-pad * 0.55} y1={Y(pos.x)} x2={-pad * 0.55} y2={Y(job.w + pos.x)} />
         <text transform={`translate(${-pad * 0.75} ${Y(pos.x + job.w / 2)}) rotate(-90)`} textAnchor="middle" stroke="none">{(job.w / MM).toFixed(2)} in of roll</text>
       </g>
     </svg>
@@ -307,7 +333,16 @@ export default function CutWindow({ devices, groupsFor, hasCutLines, hasSelectio
               <span>{cur ? (<>{cur.color && <i style={{ background: cur.color }} />}{jobs.length > 1 ? `${cur.name} · ${page + 1} of ${jobs.length}` : what === 'all' ? 'All colors combined' : cur.name}</>) : '—'}</span>
               <button className="btn ghost small" disabled={page >= jobs.length - 1} onClick={() => setPage(page + 1)}>▶</button>
             </div>
-            <div className="cw-stage"><Preview job={cur} mediaMm={mediaMm} pos={pos} /></div>
+            <div className="cw-stage"><Preview job={cur} mediaMm={mediaMm} pos={pos} onMove={setPos} /></div>
+            {cur && (
+              <div className="cw-place">
+                <span className="muted small">Place on the roll — drag the job, or:</span>
+                <button className="btn small" disabled={!(mediaMm > cur.h)} title="Right-hand edge, where the cutter starts" onClick={() => setPos((p) => ({ ...p, y: 0 }))}>Right edge</button>
+                <button className="btn small" disabled={!(mediaMm > cur.h)} title="Middle of the roll" onClick={() => setPos((p) => ({ ...p, y: Math.max(0, (mediaMm - cur.h) / 2) }))}>Center on roll</button>
+                <button className="btn small" disabled={!(mediaMm > cur.h)} title="Left-hand edge of the roll" onClick={() => setPos((p) => ({ ...p, y: Math.max(0, mediaMm - cur.h) }))}>Left edge</button>
+                <button className="btn small" disabled={!pos.x && !pos.y} title="Back to the cutter's origin" onClick={() => setPos({ x: 0, y: 0 })}>Reset</button>
+              </div>
+            )}
             <div className="cw-stats">
               {dev ? <b>{dev.name}, {(mediaMm / MM).toFixed(0)}″</b> : null}
               <span>{jobs.length} job{jobs.length !== 1 ? 's' : ''}</span>

@@ -795,3 +795,6 @@ details.adv[open] > summary { margin-bottom: 4px; }
 .cw-poll .input-unit { flex: 1; min-width: 0; }
 .cw-poll .btn { white-space: nowrap; padding: 0 10px; font-size: 12.5px; }
 .dz-field small.error { color: #ff7a7f; }
+.cw-place { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+.cw-place .muted { margin-right: 4px; }
+.cw-svg { touch-action: none; user-select: none; }
