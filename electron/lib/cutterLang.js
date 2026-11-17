@@ -65,7 +65,48 @@ function addOvercut(paths, overcutMm) {
   });
 }
 
-function prepare(paths, cfg = {}) {
+// Curves arrive as very many tiny straight steps (0.1 mm or less). A cutter stops and starts on every
+// one, so it shudders instead of sweeping round the curve. Flexi sends the same curve as far fewer,
+// longer steps (about 2.6 mm on a 2.5 in circle, never more than 0.03 mm off the true line), so the
+// same is done here: points are dropped while the line stays within `tol` mm of the original.
+function smoothPath(pts, tol) {
+  const n = pts.length;
+  if (n < 4 || !(tol > 0)) return pts;
+  const closed = Math.hypot(pts[0].x - pts[n - 1].x, pts[0].y - pts[n - 1].y) < 1e-6;
+  const keep = new Uint8Array(n);
+  keep[0] = keep[n - 1] = 1;
+  const stack = [];
+  if (closed) {
+    // a closed loop has no chord to measure from: split it at the point farthest from the start
+    let far = 0, fd = -1;
+    for (let i = 1; i < n - 1; i++) { const d = Math.hypot(pts[i].x - pts[0].x, pts[i].y - pts[0].y); if (d > fd) { fd = d; far = i; } }
+    if (fd <= tol) return pts;
+    keep[far] = 1; stack.push([0, far], [far, n - 1]);
+  } else stack.push([0, n - 1]);
+  while (stack.length) {
+    const [a, b] = stack.pop();
+    if (b - a < 2) continue;
+    const ax = pts[a].x, ay = pts[a].y, dx = pts[b].x - ax, dy = pts[b].y - ay, len2 = dx * dx + dy * dy;
+    let far = -1, fd = tol;
+    for (let i = a + 1; i < b; i++) {
+      let t = len2 ? ((pts[i].x - ax) * dx + (pts[i].y - ay) * dy) / len2 : 0;
+      t = t < 0 ? 0 : t > 1 ? 1 : t;
+      const d = Math.hypot(pts[i].x - (ax + t * dx), pts[i].y - (ay + t * dy));
+      if (d > fd) { fd = d; far = i; }
+    }
+    if (far > 0) { keep[far] = 1; stack.push([a, far], [far, b]); }
+  }
+  const out = [];
+  for (let i = 0; i < n; i++) if (keep[i]) out.push(pts[i]);
+  return out;
+}
+function smoothPaths(paths, cfg = {}) {
+  const tol = cfg.smoothMm === undefined || cfg.smoothMm === null || cfg.smoothMm === '' ? 0.025 : Number(cfg.smoothMm);
+  return tol > 0 ? paths.map((p) => smoothPath(p, tol)) : paths;
+}
+
+function prepare(paths0, cfg = {}) {
+  const paths = smoothPaths(paths0, cfg);
   // Registered (print & cut) jobs: coordinates are already relative to the marks — don't move them.
   if (cfg.keepOrigin) return addOvercut(paths, cfg.overcutMm);
   const t = transformPaths(paths, cfg);
@@ -238,4 +279,4 @@ function parseSizeReplies(replies, cfg = {}) {
   return { acrossMm, alongMm, raw: nums.slice(0, 4) };
 }
 
-module.exports = { transformPaths, bounds, addOvercut, toHPGL, toGPGL, generate, registeredJob, jobExtent, moveTo, areaTrace, testPattern, unescapeCommands, MM_PER_IN, sizeQueries, parseSizeReplies };
+module.exports = { transformPaths, bounds, addOvercut, toHPGL, toGPGL, generate, registeredJob, jobExtent, moveTo, areaTrace, testPattern, unescapeCommands, MM_PER_IN, sizeQueries, parseSizeReplies, smoothPath, smoothPaths };
