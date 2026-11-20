@@ -22,12 +22,18 @@ import { simplify, ENVELOPES } from '../../lib/design.js';
 import { SHAPES } from '../../lib/shapes.js';
 import { nest } from '../../lib/nest.js';
 import Canvas from './Canvas.jsx';
-import { PageProps, ObjectProps, FillStroke, ObjectList, SIGN_SWATCHES, PAGE_PRESETS, MM } from './Panels.jsx';
+import { PageProps, ObjectProps, FillStroke, ObjectList, SIGN_SWATCHES, PAGE_PRESETS, MM, setUnits } from './Panels.jsx';
 import Icon from './icons.jsx';
 import ContourPanel from './ContourPanel.jsx';
 import AlignTest from './AlignTest.jsx';
+import { TEMPLATES, templateSetup } from '../../lib/templates.js';
+import { preflightDoc } from '../../lib/docPreflight.js';
+import { parseList, fillText, fieldsIn } from '../../lib/nameList.js';
+import * as PG from '../../lib/pages.js';
 import { ParamDialog, PrintCutDialog, JobInfo, Modal } from './Dialogs.jsx';
 import CutWindow from '../CutWindow.jsx';
+import ProofButton from '../ProofButton.jsx';
+import { imageToCmyk, printerProfile } from '../../lib/color.js';
 
 pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
 const api = window.inksign;
@@ -134,6 +140,7 @@ export default function Design({ devices, jobs = [], active, onJobsSent, incomin
   st.current = { tabId, filePath, dirty, view, sel, tabs };
   const unit = UNITS[opts.units] ? opts.units : 'in';
   const U = UNITS[unit];
+  setUnits(unit); // the side panels, rulers and dialogs read this
   const len = (mm) => `${+(mm / U.k).toFixed(unit === 'in' ? 2 : U.dp)}${U.mark}`;
 
   useEffect(() => saveJson(OPT_KEY, { showGrid: opts.showGrid, gridIn: opts.gridIn, snapGrid: opts.snapGrid, snapGuides: opts.snapGuides, snapObjects: opts.snapObjects, showPage: opts.showPage, units: opts.units, nudgeIn: opts.nudgeIn }), [opts]);
@@ -315,7 +322,7 @@ export default function Design({ devices, jobs = [], active, onJobsSent, incomin
   // a new or opened design gets its own tab, so nothing on screen is ever thrown away
   const newDoc = () => { if (!isEmpty()) addTab(blank()); setWelcome(true); };
   const save = async () => {
-    const p = await api.files.saveJob(doc.name, { kind: 'inksign-design', version: 1, doc });
+    const p = await api.files.saveJob(doc.name, { kind: 'inksign-design', version: 1, doc: PG.syncPages(docRef.current) });
     if (p) { setFilePath(p); setDirty(false); flash(`Saved ${p}`); }
   };
   const open = async () => {
@@ -328,7 +335,8 @@ export default function Design({ devices, jobs = [], active, onJobsSent, incomin
   };
   const exportAs = async (fmt) => {
     try {
-      const p = fmt === 'svg' ? await api.design.exportFile('svg', null, doc.name, toSvg(doc)) : await api.design.exportFile(fmt, toScene(doc), doc.name);
+      const many = fmt === 'pdf' && PG.pageCount(doc) > 1;
+      const p = fmt === 'svg' ? await api.design.exportFile('svg', null, doc.name, toSvg(doc)) : await api.design.exportFile(fmt, many ? pageScenes() : toScene(doc), doc.name);
       if (p) flash(`Exported ${p}`);
     } catch (e) { flash(e.message); }
   };
@@ -393,10 +401,142 @@ export default function Design({ devices, jobs = [], active, onJobsSent, incomin
       return { name: f.name, error: `${f.name}: this kind of file can't be opened here` };
     });
     const d = { ...blank(), name: incoming.name || 'Order', order: incoming.inkflow ? { ...incoming.inkflow, label: incoming.label } : undefined };
+    if (d.order && loadJson('inksign.dz.autoTimer', true) && !(timers.running || []).some((r) => r.orderId === d.order.orderId)) startTimer('Design / layout', d.order);
     if (isEmpty()) { hist.current = D.history(120); live(d); setFilePath(null); setSel([]); } else addTab(d);
     setWelcome(false);
     importFiles(files).then(() => { setDirty(true); setTimeout(() => canvas.current?.fit(), 60); flash(`${incoming.label ? `Order ${incoming.label}: ` : ''}artwork opened — ${incoming.want === 'printcut' ? 'use Print & Cut when it is laid out' : incoming.want === 'studio' ? 'use Cut when it is laid out' : 'use Print when it is laid out'}`); });
   }, [incoming]);
+
+  // ---- labor timer for the order this design belongs to (shows in the status bar) ----
+  const [timers, setTimers] = useState({ running: [] });
+  const loadTimers = useCallback(() => api.timers.list().then(setTimers).catch(() => {}), []);
+  useEffect(() => {
+    loadTimers();
+    const i = setInterval(loadTimers, 30000);
+    window.addEventListener('inksign-timers', loadTimers);
+    return () => { clearInterval(i); window.removeEventListener('inksign-timers', loadTimers); };
+  }, [loadTimers]);
+  const orderTimer = doc.order ? (timers.running || []).find((r) => r.orderId === doc.order.orderId) : null;
+  const startTimer = async (task = 'Design / layout', order = docRef.current.order) => {
+    if (!order) return;
+    try { await api.timers.start({ task, orderId: order.orderId, orderLabel: order.label || null }); window.dispatchEvent(new Event('inksign-timers')); } catch (e) { flash(e.message); }
+  };
+  const stopTimer = async () => {
+    if (!orderTimer) return;
+    try {
+      const r = await api.timers.stop(orderTimer.id, {});
+      window.dispatchEvent(new Event('inksign-timers'));
+      if (r.entry) flash(`${r.entry.task}: ${r.entry.minutes} min ($${(r.entry.costCents / 100).toFixed(2)})${r.entry.sentToInkFlow ? ' added to the order' : ''}`);
+    } catch (e) { flash(e.message); }
+  };
+  const [autoTimer, setAutoTimer] = useState(() => loadJson('inksign.dz.autoTimer', true));
+
+  // ---- pages ----
+  const pageScenes = () => PG.pagesOf(docRef.current).map((_, i) => toScene(PG.docForPage(docRef.current, i)));
+  const goPage = (i) => { live(PG.goToPage(docRef.current, i)); setSel([]); };
+  const newPage = (copy = false) => { const d = docRef.current; apply(() => PG.addPage(d, { objects: copy ? d.objects.map((o) => ({ ...JSON.parse(JSON.stringify(o)), id: D.newId(), groupId: o.groupId ? `${o.groupId}p` : o.groupId })) : [] })); setSel([]); };
+  const dropPage = () => {
+    if (PG.pageCount(doc) < 2) return;
+    if (doc.objects.length && !window.confirm(`Delete page ${PG.pageIndex(doc) + 1} and everything on it?`)) return;
+    apply((d) => PG.removePage(d)); setSel([]);
+  };
+  const printAllPages = async () => {
+    const n = PG.pageCount(docRef.current);
+    setBusy(`Getting ${n} pages ready…`);
+    try {
+      const b64 = await api.design.pagesPdf(pageScenes(), 'omit', docRef.current.name);
+      setDialog({ kind: 'printwin', scene: null, pdf: b64, preview: b64, whole: true, w: docRef.current.page.w, h: docRef.current.page.h });
+    } catch (e) { flash(e.message); } finally { setBusy(''); }
+  };
+
+  // ---- preflight: checked before printing or cutting; the full list is under Tools › Preflight ----
+  const preflightNote = (purpose) => {
+    const rows = preflightDoc(docRef.current, { purpose });
+    const bad = rows.filter((r) => r.level === 'error' || r.level === 'warn');
+    if (bad.length) flash(`Preflight: ${bad[0].text}${bad.length > 1 ? ` (+${bad.length - 1} more — Tools › Preflight)` : ''}`);
+  };
+
+  // ---- templates ----
+  const fromTemplate = (t) => {
+    const s = templateSetup(t);
+    let d = { ...D.newDoc({ name: t.name }), page: { w: s.page.w, h: s.page.h, color: '#ffffff' }, guides: s.guides };
+    if (s.hemMm > 0 || s.grommetMm > 0) d = FX.bannerFinish(d, { hemMm: s.hemMm, grommets: s.grommetMm > 0, spacingMm: s.grommetMm || 609.6 }).doc;
+    if (s.marks) d = { ...d, marks: s.marks };
+    if (isEmpty()) { hist.current = D.history(120); live(d); setFilePath(null); setSel([]); } else addTab(d);
+    setDirty(false); setWelcome(false); setDialog(null);
+    setTimeout(() => canvas.current?.fit(), 40);
+    flash(`${t.name}: ${t.kind}${s.hemMm ? ` — hems shown by the fold guides` : ''}${s.marks ? ' — registration marks placed' : ''}`);
+  };
+
+  // ---- crash recovery: open designs with unsaved changes are written every 20 s ----
+  const rev = useRef(0);
+  useEffect(() => { rev.current += 1; }, [doc]);
+  const lastSaved = useRef('');
+  useEffect(() => {
+    const t = setInterval(() => {
+      const c = st.current;
+      const all = [{ id: c.tabId, doc: docRef.current, filePath: c.filePath, dirty: c.dirty }, ...[...parked.current.entries()].map(([id, s]) => ({ id, doc: s.doc, filePath: s.filePath, dirty: s.dirty }))];
+      const keep = all.filter((x) => x.dirty && (x.doc.objects.length || (x.doc.sheets || []).some((s) => s.objects.length)));
+      const sig = `${rev.current}|${keep.map((x) => x.id).join(',')}`;
+      if (sig === lastSaved.current) return;
+      lastSaved.current = sig;
+      api.design.autosave(keep.length ? { at: Date.now(), tabs: keep.map((x) => ({ doc: PG.syncPages(x.doc), filePath: x.filePath })) } : null).catch(() => {});
+    }, 20000);
+    return () => clearInterval(t);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const [recovery, setRecovery] = useState(null);
+  useEffect(() => { api.design.recover().then((r) => { if (r && r.tabs && r.tabs.length) setRecovery(r); }).catch(() => {}); }, []);
+  const restore = () => {
+    const r = recovery;
+    setRecovery(null);
+    r.tabs.forEach((t, i) => {
+      if (i === 0 && isEmpty()) { hist.current = D.history(120); live(t.doc); setFilePath(t.filePath || null); setDirty(true); } else addTab(t.doc, t.filePath || null, true);
+    });
+    setWelcome(false);
+    setTimeout(() => canvas.current?.fit(), 40);
+    flash(`Restored ${r.tabs.length} design${r.tabs.length > 1 ? 's' : ''} — save ${r.tabs.length > 1 ? 'them' : 'it'} to keep`);
+  };
+  const discardRecovery = () => { setRecovery(null); api.design.dropRecovery().catch(() => {}); };
+
+  // ---- Xerox color: pictures converted to the Xerox's CMYK with the profile picked on the Color page ----
+  const colorize = async (scene, printer) => {
+    if (!printer || printer.driver !== 'network-printer') return scene;
+    const prof = printerProfile(await api.settings.get(), printer.id);
+    if (!prof) return scene;
+    const conv = new Map();
+    const items = [];
+    for (const it of scene.items) {
+      if (it.kind !== 'image') { items.push(it); continue; }
+      if (!conv.has(it.dataUrl)) conv.set(it.dataUrl, await imageToCmyk(it.dataUrl, prof.profileId, prof.intent));
+      items.push({ ...it, cmyk: conv.get(it.dataUrl), cmykKey: it.dataUrl.slice(-64) + it.dataUrl.length });
+    }
+    return { ...scene, items };
+  };
+
+  // ---- customer proof: the art on a letter sheet with its size, colors and a PROOF watermark ----
+  const colorName = (hex) => {
+    const h = String(hex || '').toLowerCase();
+    const hit = [...SIGN_SWATCHES, ...MORE_SWATCHES].find(([c]) => c.toLowerCase() === h);
+    return hit ? hit[1] : h;
+  };
+  const proofOf = () => {
+    const d = docRef.current;
+    const vis = d.objects.filter((o) => !o.hidden);
+    const art = vis.filter((o) => !o.cut);
+    const b = D.selBounds(art.length ? art : vis);
+    const colors = [...new Set(art.flatMap((o) => [o.fill?.type === 'solid' ? o.fill.color : null, o.stroke?.color && o.stroke.width > 0 ? o.stroke.color : null]).filter(Boolean))].map(colorName);
+    return { scene: cropScene(toScene(d), b), info: { title: d.name, wMm: b.w, hMm: b.h, colors, order: d.order?.label || '' } };
+  };
+  const makeProof = async () => {
+    if (!docRef.current.objects.some((o) => !o.hidden)) throw new Error('Nothing to proof yet');
+    const p = proofOf();
+    return { kind: 'design', name: `${docRef.current.name} proof.pdf`, note: 'Design proof from InkSign', payload: p };
+  };
+  const saveProof = async () => {
+    if (!doc.objects.some((o) => !o.hidden)) { flash('Nothing to proof yet'); return; }
+    const p = proofOf();
+    try { const f = await api.design.saveProof(p.scene, p.info); if (f) flash(`Saved ${f}`); } catch (e) { flash(e.message); }
+  };
 
   // ---- Create Cut Contour panel + registration marks on the design ----
   const contourCompute = async (p) => {
@@ -505,7 +645,25 @@ export default function Design({ devices, jobs = [], active, onJobsSent, incomin
           flash(`Replaced in ${made.length} text object${made.length > 1 ? 's' : ''}`);
         }, { okLabel: 'Replace all' })],
       ['UPPER CASE', () => caseAll('upper'), '', !textObjs.length], ['lower case', () => caseAll('lower'), '', !textObjs.length], ['Title Case', () => caseAll('title'), '', !textObjs.length], ['Sentence case', () => caseAll('sentence'), '', !textObjs.length], null,
-      ['Convert to outlines', () => toOutlinesIds(ids), 'Ctrl+Q', !textObjs.length], null,
+      ['Convert to outlines', () => toOutlinesIds(ids), 'Ctrl+Q', !textObjs.length],
+      ['Split lines into separate pieces', async () => {
+        const multi = textObjs.filter((o) => o.text.split('\n').filter((l) => l.trim()).length > 1);
+        if (!multi.length) { flash('Select text with more than one line'); return; }
+        const made = [];
+        for (const o of multi) {
+          const lines = o.text.split('\n').filter((l) => l.trim());
+          const step = o.h / lines.length;
+          for (let i = 0; i < lines.length; i++) {
+            const t = await retext({ ...o, arc: null }, { text: lines[i] });
+            const x = o.align === 'center' ? o.x + (o.w - t.w) / 2 : o.align === 'right' ? o.x + o.w - t.w : o.x;
+            made.push({ ...t, id: D.newId(), groupId: null, name: lines[i].slice(0, 30), x, y: o.y + i * step });
+          }
+        }
+        const gone = multi.map((o) => o.id);
+        apply((d) => ({ ...d, objects: [...d.objects.filter((o) => !gone.includes(o.id)), ...made] }));
+        setSel(made.map((o) => o.id));
+        flash(`${made.length} pieces — each line can now be cut, sized or nested on its own`);
+      }, '', !textObjs.length], null,
       ['QR code…', () => PD('qr', 'QR code', [{ key: 'text', label: 'Link or text', type: 'textarea', default: 'https://' }, { key: 'size', label: 'Size', type: 'in', default: 50.8 }, { key: 'level', label: 'Error correction', type: 'select', options: [['L', 'Low (7%)'], ['M', 'Medium (15%)'], ['Q', 'Quartile (25%)'], ['H', 'High (30%) — survives scuffs, logos on top']], default: 'M' }, { key: 'color', label: 'Color', type: 'color', default: '#000000' }],
         (v) => { const q = qrPaths(v.text, { sizeMm: v.size, level: v.level }); addCentered(D.shapeFromPaths(q.paths, { name: 'QR code', fill: { type: 'solid', color: v.color } })); })],
       ['Barcode (Code 128)…', () => PD('bar', 'Barcode — Code 128', [{ key: 'text', label: 'What it says', type: 'text', default: '' }, { key: 'w', label: 'Width', type: 'in', default: 63.5 }, { key: 'h', label: 'Bar height', type: 'in', default: 19.05 }, { key: 'color', label: 'Color', type: 'color', default: '#000000' }],
@@ -572,8 +730,8 @@ export default function Design({ devices, jobs = [], active, onJobsSent, incomin
   }).filter((x) => x !== undefined);
   const check = (on, label) => `${on ? '✓ ' : ''}${label}`;
   const pic = selObjs.length === 1 && selObjs[0].type === 'image' ? selObjs[0] : null;
-  const sendCut = ['Send to be Cut…', () => setDialog({ kind: 'cut' }), 'Ctrl+L'];
-  const wizard = ['Contour Cutting Wizard (Print & Cut)…', () => setDialog({ kind: 'printcut' })];
+  const sendCut = ['Send to be Cut…', () => { preflightNote('cut'); setDialog({ kind: 'cut' }); }, 'Ctrl+L'];
+  const wizard = ['Contour Cutting Wizard (Print & Cut)…', () => { preflightNote('printcut'); setDialog({ kind: 'printcut' }); }];
   const swapPage = () => apply((d) => ({ ...d, page: { ...d.page, w: d.page.h, h: d.page.w } }));
   const pageSetup = () => PD('pagesetup', 'Page setup', [
     { key: 'w', label: 'Width', type: 'in', default: doc.page.w }, { key: 'h', label: 'Height', type: 'in', default: doc.page.h },
@@ -583,9 +741,10 @@ export default function Design({ devices, jobs = [], active, onJobsSent, incomin
     (v) => { if (!(v.n > 0)) throw new Error('Type a distance above 0'); setOpts((o) => ({ ...o, nudgeIn: v.n / MM })); });
   const menus = {
     File: [
-      ...pick('File', 'New', 'Open…', 'Save…'), ['Close this design', () => closeTab(tabId)], null,
+      ...pick('File', 'New', 'Open…', 'Save…'), ['New from template…', () => setDialog({ kind: 'templates' })], ['Close this design', () => closeTab(tabId)], null,
       ...pick('File', 'Import…', 'Open PDF', null, 'Export PDF', 'Export EPS', 'Export SVG', null),
-      sendCut, wizard, ...pick('File', 'RIP and Print…', 'RIP and Print the whole'), null, ...pick('File', 'Job info'),
+      sendCut, wizard, ...pick('File', 'RIP and Print…', 'RIP and Print the whole'), null,
+      ['RIP and Print all pages…', printAllPages, '', PG.pageCount(doc) < 2], ['Send proof to the customer (InkFlow)…', () => setDialog({ kind: 'proof' })], ['Save proof PDF…', saveProof], null, ...pick('File', 'Job info'),
     ],
     Edit: base.Edit,
     View: [
@@ -599,7 +758,14 @@ export default function Design({ devices, jobs = [], active, onJobsSent, incomin
       ...pick('View', 'Grid spacing', 'Add guide'),
       ['Guides through the page center', () => apply((d) => ({ ...d, guides: { x: [...d.guides.x, d.page.w / 2], y: [...d.guides.y, d.page.h / 2] } }))],
       ...pick('View', 'Clear guides'), null,
-      ...pick('Arrange', 'Step and repeat', 'Fill the page', 'Circle array', 'Nest on the page', 'Auto serialize'),
+      ...pick('Arrange', 'Step and repeat', 'Fill the page', 'Circle array', 'Nest on the page', 'Auto serialize'), null,
+      ['Banner hems & grommets…', () => PD('banner', 'Banner hems & grommets', [
+        { key: 'hem', label: 'Hem on each side (0 = none)', type: 'in', default: 25.4, help: 'The page grows by this much on every side and fold guides are added' },
+        { key: 'grom', label: 'Add grommet marks', type: 'bool', default: true },
+        { key: 'sp', label: 'Grommets about every', type: 'in', default: 609.6 },
+      ], (v) => { fx((d) => FX.bannerFinish(d, { hemMm: Math.max(0, v.hem), grommets: !!v.grom, spacingMm: Math.max(50, v.sp) })); setTimeout(() => canvas.current?.fit(), 30); })],
+      null,
+      ['Add a page', () => newPage(false)], ['Duplicate this page', () => newPage(true)], ['Delete this page', dropPage, '', PG.pageCount(doc) < 2],
     ],
     Arrange: [
       ...pick('Arrange', 'Bring to front', 'Bring forward', 'Send backward', 'Send to back', null, 'Align left', 'Align centers', 'Align right', 'Align top', 'Align middles', 'Align bottom', 'Center on page', null,
@@ -615,7 +781,16 @@ export default function Design({ devices, jobs = [], active, onJobsSent, incomin
       ['Object list', () => setTab('objects')], ['Object properties', () => setTab('props')],
     ],
     Effects: [
-      ...pick('Effects', 'Outline…', 'Shadow…', 'Blend…', 'Distort…', 'Stripe…', null, 'Rhinestone'),
+      ...pick('Effects', 'Outline…'),
+      ['Outlining module (outlines + inline)…', () => PD('outlines', 'Outlining module', [
+        { key: 'n', label: 'Outlines', type: 'select', default: '2', options: [['0', 'None'], ['1', '1'], ['2', '2'], ['3', '3'], ['4', '4']] },
+        { key: 'd', label: 'Each outline', type: 'in', default: 3.175 },
+        { key: 'c1', label: 'First outline color', type: 'color', default: '#ffffff' },
+        { key: 'c2', label: 'Second outline color', type: 'color', default: '#000000' },
+        { key: 'in', label: 'Inline width (0 = none)', type: 'in', default: 0 },
+        { key: 'ic', label: 'Inline color', type: 'color', default: '#ffffff' },
+      ], (v) => fx((d) => FX.outlineSet(d, ids, { count: Number(v.n), distMm: Math.max(0.1, v.d), colors: [v.c1, v.c2], inlineMm: Math.max(0, v.in), inlineColor: v.ic }))), '', !S(1)],
+      ...pick('Effects', 'Shadow…', 'Blend…', 'Distort…', 'Stripe…', null, 'Rhinestone'),
       ['Stencil bridges…', () => PD('stencil', 'Stencil bridges', [
         { key: 'w', label: 'Bridge width', type: 'in', default: 3, step: 0.01, help: 'Joins the middles of O, A, R, B… to the stencil' },
         { key: 'dir', label: 'Bridges run', type: 'select', default: 'vertical', options: [['vertical', 'Up and down'], ['horizontal', 'Left and right']] },
@@ -630,7 +805,7 @@ export default function Design({ devices, jobs = [], active, onJobsSent, incomin
       ['Vectorize (trace the picture to shapes)…', () => traceDlg(false), '', !pic],
       ['Contour cut around the picture…', () => traceDlg(true), '', !pic],
     ],
-    Text: [['Type new text', () => setTool('text'), 'T'], ...base.Text],
+    Text: [['Type new text', () => setTool('text'), 'T'], ['Name list / variable data…', () => setDialog({ kind: 'names' }), '', !textObjs.length], ...base.Text],
     Curves: [
       ...base.Effects.filter((x) => x && x[0].startsWith('Combine › ')).map((x) => [x[0].slice(10), ...x.slice(1)]), null,
       ...pick('Effects', 'Outline…', 'Create cut contour…'), null,
@@ -649,7 +824,7 @@ export default function Design({ devices, jobs = [], active, onJobsSent, incomin
     Tools: [
       sendCut, wizard, null, ...pick('Effects', 'Create cut contour…', 'Rectangle contour cut', 'Page contour cut'), null,
       [doc.marks ? 'Change registration marks…' : 'Place registration marks…', marksDlg], ['Remove registration marks', removeMarks, '', !doc.marks], null,
-      ['Print & cut alignment test…', () => setDialog({ kind: 'align' })], null,
+      ['Long-roll print & cut (in segments)…', () => go && go('printcut')], ['Print & cut alignment test…', () => setDialog({ kind: 'align' })], ['Preflight…', () => setDialog({ kind: 'preflight', purpose: doc.objects.some((o) => o.cut) ? 'printcut' : 'print' })], null,
       ...pick('Text', 'QR code', 'Barcode'), null, ['Nudge distance…', nudgeDlg], ...pick('View', 'Grid spacing'), ...pick('File', 'Job info'),
     ],
     Window: [
@@ -657,9 +832,7 @@ export default function Design({ devices, jobs = [], active, onJobsSent, incomin
       ...tabs.map((t) => { const d = t.id === tabId ? doc : parked.current.get(t.id)?.doc; return [check(t.id === tabId, d?.name || 'Untitled'), () => switchTab(t.id)]; }),
     ],
     Help: [
-      ['Keyboard shortcuts…', () => setDialog({ kind: 'keys' })], null,
-      // the three older screens this workspace replaces, kept until nothing is missed
-      ['Older screen: Vinyl Cut Studio', () => go && go('studio')], ['Older screen: Print & Cut sheets', () => go && go('printcut')], ['Older screen: Wide Format roll layout', () => go && go('wide')],
+      ['Keyboard shortcuts…', () => setDialog({ kind: 'keys' })],
     ],
   };
   function caseAll(mode) {
@@ -807,6 +980,7 @@ export default function Design({ devices, jobs = [], active, onJobsSent, incomin
     const vis = d.objects.filter((o) => !o.hidden);
     if (!vis.length) { flash('Nothing to print yet'); return; }
     const whole = what === 'page';
+    preflightNote('print');
     let scene = toScene(d);
     if (!whole) {
       const b = D.selBounds(vis.filter((o) => !o.cut).length ? vis.filter((o) => !o.cut) : vis);
@@ -972,11 +1146,18 @@ export default function Design({ devices, jobs = [], active, onJobsSent, incomin
 
       {/* canvas */}
       <div className="dz-stage">
-        <Canvas ref={canvas} doc={doc} sel={sel} setSel={setSel} tool={tool} setTool={setTool} view={view} setView={setView}
+        <Canvas ref={canvas} units={unit} doc={doc} sel={sel} setSel={setSel} tool={tool} setTool={setTool} view={view} setView={setView}
           ghost={tab === 'contour' ? ghost : null} opts={opts} shapeKind={shapeKind} live={live} begin={begin} commit={commit} onCursor={setCursor} wire={opts.wire} active={active}
           onTextAt={async (p) => { if (textEdit) { await commitTextEdit(); return; } setTextEdit({ x: p.x, y: p.y, text: '' }); }} onEditText={startEditText} onPick={pickFrom} />
         {textOverlay}
         {busy && <div className="dz-busy">{busy}</div>}
+        {recovery && (
+          <div className="dz-recover">
+            <b>InkSign closed with {recovery.tabs.length} unsaved design{recovery.tabs.length > 1 ? 's' : ''}</b>
+            <span className="muted small">{recovery.tabs.map((t) => t.doc.name).join(', ')} · last kept {new Date(recovery.at).toLocaleString()}</span>
+            <div className="row"><button className="btn primary" onClick={restore}>Restore</button><button className="btn" onClick={discardRecovery}>Discard</button></div>
+          </div>
+        )}
         {welcome && !doc.objects.length && !busy && (
           <div className="dz-empty">
             <button className="dz-empty-x" title="Close — start with a blank page" onClick={() => setWelcome(false)}>✕</button>
@@ -994,6 +1175,7 @@ export default function Design({ devices, jobs = [], active, onJobsSent, incomin
                 setWelcome(false); setTimeout(() => canvas.current?.fit(), 30);
               }}>Start</button>
             </div>
+            <button className="btn" onClick={() => setDialog({ kind: 'templates' })}>Start from a template…</button>
             <span className="muted small">or bring in artwork</span>
             <div className="row"><button className="btn" onClick={() => { setWelcome(false); doImport(false); }}>Import artwork…</button><button className="btn" onClick={() => { setWelcome(false); doImport(true); }}>Open a PDF / AI / EPS…</button><button className="btn" onClick={() => { setWelcome(false); open(); }}>Open a saved design…</button></div>
             <small className="muted">PDF, AI, EPS, SVG, DXF, PNG and JPG. Text in PDFs comes in as shapes; CutContour lines come in as cut lines.</small>
@@ -1035,6 +1217,13 @@ export default function Design({ devices, jobs = [], active, onJobsSent, incomin
 
       {/* view switches */}
       <div className="dz-bottom">
+        <div className="dz-pages" title="Pages in this design">
+          <button className="dz-tb" disabled={PG.pageIndex(doc) === 0} onClick={() => goPage(PG.pageIndex(doc) - 1)}>◀</button>
+          <span>Page {PG.pageIndex(doc) + 1} of {PG.pageCount(doc)}</span>
+          <button className="dz-tb" disabled={PG.pageIndex(doc) >= PG.pageCount(doc) - 1} onClick={() => goPage(PG.pageIndex(doc) + 1)}>▶</button>
+          <button className="dz-tb" title="Add a page after this one" onClick={() => newPage(false)}>+</button>
+          {PG.pageCount(doc) > 1 && <button className="dz-tb" title="Delete this page" onClick={dropPage}>✕</button>}
+        </div>
         <span className="dz-bottom-label">View</span>
         <TB ic="page" label="Page" tip="Show or hide the page" on={opts.showPage !== false} act={() => setOpts((o) => ({ ...o, showPage: o.showPage === false }))} />
         <TB ic="grid" label="Grid" tip="Show or hide the grid" on={!!opts.showGrid} act={() => setOpts((o) => ({ ...o, showGrid: !o.showGrid }))} />
@@ -1056,19 +1245,79 @@ export default function Design({ devices, jobs = [], active, onJobsSent, incomin
         <span><em>Page</em>{len(doc.page.w)} × {len(doc.page.h)}</span>
         <span><em>Objects</em>{doc.objects.length}</span>
         <span><em>Tool</em>{TOOLS.find((t) => t[0] === tool)?.[2].split(' — ')[0].replace(/ \(.\)$/, '')}</span>
+        {doc.order && (
+          <span className="dz-timer">
+            <em>Order {doc.order.label}</em>
+            {orderTimer
+              ? <>⏱ {orderTimer.task} · {Math.floor((Date.now() - orderTimer.start) / 60000)} min <button className="dz-tb" onClick={stopTimer}>Stop</button></>
+              : <button className="dz-tb" title="Time the labor on this order — it's added to the order's costs in InkFlow when you stop" onClick={() => startTimer()}>⏱ Start timer</button>}
+            <label title="Start a Design / layout timer by itself when an order's artwork opens here"><input type="checkbox" checked={autoTimer} onChange={(e) => { setAutoTimer(e.target.checked); saveJson('inksign.dz.autoTimer', e.target.checked); }} /> auto</label>
+          </span>
+        )}
         {msg && <span className="dz-msg">{msg}</span>}
       </div>
 
       {dialog?.kind === 'param' && <ParamDialog {...dialog} onClose={() => setDialog(null)} />}
       {dialog?.kind === 'printwin' && (
-        <PrintWindow devices={devices} jobs={jobs} source={{ scene: dialog.scene }} previewPdfBase64={dialog.preview} jobSize={{ w: dialog.scene.w, h: dialog.scene.h }}
-          name={doc.name} hasCutLines={dialog.scene.items.some((i) => i.cut)} onClose={() => setDialog(null)} onSent={(t) => { flash(t); onJobsSent && onJobsSent(); }} />
+        <PrintWindow devices={devices} jobs={jobs} source={dialog.scene ? { scene: dialog.scene } : { pdfBase64: dialog.pdf }} previewPdfBase64={dialog.preview} jobSize={dialog.scene ? { w: dialog.scene.w, h: dialog.scene.h } : { w: dialog.w, h: dialog.h }}
+          name={dialog.scene ? doc.name : `${doc.name} (all ${PG.pageCount(doc)} pages)`} inkflow={doc.order} colorize={colorize} makeProof={makeProof} hasCutLines={!!dialog.scene && dialog.scene.items.some((i) => i.cut)} onClose={() => setDialog(null)} onSent={(t) => { flash(t); onJobsSent && onJobsSent(); }} />
       )}
-      {dialog?.kind === 'cut' && <CutWindow inkflow={doc.order} devices={devices} groupsFor={(what, onlySel) => cutGroups(docRef.current, what, onlySel ? sel : null)} hasCutLines={cutLines.length > 0} hasSelection={sel.length > 0} defaultName={doc.name} onClose={() => setDialog(null)} onSent={(m) => { flash(m); onJobsSent && onJobsSent(); }} />}
+      {dialog?.kind === 'cut' && <CutWindow inkflow={doc.order} jobs={jobs} makeProof={makeProof} devices={devices} groupsFor={(what, onlySel) => cutGroups(docRef.current, what, onlySel ? sel : null)} hasCutLines={cutLines.length > 0} hasSelection={sel.length > 0} defaultName={doc.name} onClose={() => setDialog(null)} onSent={(m) => { flash(m); onJobsSent && onJobsSent(); }} />}
       {dialog?.kind === 'printcut' && (
-        <PrintCutDialog devices={devices} doc={doc} sceneFor={(marks) => toScene(docRef.current, { marks })} cutPaths={cutLines} defaultName={doc.name}
+        <PrintCutDialog devices={devices} doc={doc} inkflow={doc.order} colorize={colorize} sceneFor={(marks) => toScene(docRef.current, { marks })} cutPaths={cutLines} defaultName={doc.name}
           onClose={() => setDialog(null)} onSent={(t) => flash(t)}
           onAddCut={() => { const all = doc.objects.filter((o) => !o.cut && !o.hidden).map((o) => o.id); if (all.length) fx((d) => FX.contourCut(d, all, { offsetMm: 1.5875 })); }} />
+      )}
+      {dialog?.kind === 'proof' && (
+        <Modal title="Send a proof to the customer" onClose={() => setDialog(null)} foot={<><button className="btn" onClick={saveProof}>Save proof PDF…</button><button className="btn" onClick={() => setDialog(null)}>Close</button></>}>
+          <p className="muted">The art goes on a letter-size PDF with its finished size, colors, the date and a PROOF watermark, and is attached to the order in InkFlow, ready to send for approval from there.{doc.order ? ` This design is linked to order ${doc.order.label}.` : ' Pick the order next.'}</p>
+          <ProofButton order={doc.order || null} makeProof={makeProof} label={doc.order ? `Attach the proof to order ${doc.order.label}` : 'Pick the order and attach the proof'} />
+        </Modal>
+      )}
+      {dialog?.kind === 'templates' && (
+        <Modal title="New from a template" wide onClose={() => setDialog(null)} foot={<button className="btn" onClick={() => setDialog(null)}>Cancel</button>}>
+          {[...new Set(TEMPLATES.map((t) => t.group))].map((g) => (
+            <div key={g} className="tp-group">
+              <div className="box-title">{g}</div>
+              <div className="tp-grid">
+                {TEMPLATES.filter((t) => t.group === g).map((t) => (
+                  <button key={t.id} className="tp-card" onClick={() => fromTemplate(t)}>
+                    <span className="tp-shape" style={{ aspectRatio: `${t.w} / ${t.h}` }}>{t.hemIn ? <i className="tp-hem" /> : null}{t.marks ? <><i className="tp-m tl" /><i className="tp-m tr" /><i className="tp-m bl" /><i className="tp-m br" /></> : null}</span>
+                    <b>{t.name}</b><span className="muted small">{t.w}″ × {t.h}″ · {t.kind}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          ))}
+        </Modal>
+      )}
+      {dialog?.kind === 'preflight' && (
+        <Modal title="Preflight" onClose={() => setDialog(null)} foot={<button className="btn" onClick={() => setDialog(null)}>Close</button>}>
+          <div className="seg" style={{ marginBottom: 10 }}>
+            {[['print', 'Printing'], ['cut', 'Cutting vinyl'], ['printcut', 'Print & cut']].map(([k, l]) => <button key={k} className={dialog.purpose === k ? 'on' : ''} onClick={() => setDialog({ ...dialog, purpose: k })}>{l}</button>)}
+          </div>
+          <div className="preflight">{preflightDoc(doc, { purpose: dialog.purpose }).map((r, i) => <div key={i} className={`pf-row pf-${r.level}`}><b>{{ ok: '✓', warn: '!', error: '✕', info: '·' }[r.level]}</b><span>{r.text}</span></div>)}</div>
+          {PG.pageCount(doc) > 1 && <p className="muted small">Checks the page on screen (page {PG.pageIndex(doc) + 1} of {PG.pageCount(doc)}).</p>}
+        </Modal>
+      )}
+      {dialog?.kind === 'names' && (
+        <NameListDialog objs={selObjs.length ? selObjs : textObjs} pages={true}
+          onClose={() => setDialog(null)}
+          onDone={(r) => {
+            if (r.mode === 'pages') {
+              apply((d) => {
+                let out = d;
+                const keepIds = new Set(r.sourceIds);
+                r.sets.forEach((objs, i) => { out = i === 0 ? { ...out, objects: [...out.objects.filter((o) => !keepIds.has(o.id)), ...objs] } : PG.addPage(out, { objects: [...d.objects.filter((o) => !keepIds.has(o.id)).map((o) => ({ ...JSON.parse(JSON.stringify(o)), id: D.newId() })), ...objs], name: r.names[i] }); });
+                return PG.goToPage(out, PG.pageIndex(d));
+              });
+              flash(`${r.sets.length} pages made — one per name. Use File › RIP and Print all pages`);
+            } else {
+              apply((d) => ({ ...d, objects: [...d.objects.filter((o) => !r.sourceIds.includes(o.id)), ...r.sets.flat()] }));
+              flash(`${r.sets.length} copies laid out`);
+            }
+            setSel([]);
+          }} />
       )}
       {dialog?.kind === 'align' && <AlignTest devices={devices} onDevicesChanged={onDevicesChanged} onClose={() => setDialog(null)} />}
       {dialog?.kind === 'keys' && (
@@ -1108,6 +1357,64 @@ function PB({ label, mm, onCommit, unit = 'in' }) {
         onKeyDown={(e) => { if (e.key === 'Enter') e.target.blur(); if (e.key === 'Escape') { setT(fmt(mm)); e.target.blur(); } }} />
       <em>{unit}</em>
     </label>
+  );
+}
+
+// Name list / variable data (Text › Name list): one copy of the selected art per name or row. Text with
+// {Column} fields gets each row's values; a lone text object is replaced by the first column.
+function NameListDialog({ objs, onClose, onDone }) {
+  const texts = objs.filter((o) => o.type === 'text');
+  const fields = [...new Set(texts.flatMap((o) => fieldsIn(o.text)))];
+  const [raw, setRaw] = useState('');
+  const [mode, setMode] = useState('grid');
+  const [cols, setCols] = useState(1);
+  const [gap, setGap] = useState(6.35);
+  const [err, setErr] = useState('');
+  const [busy, setBusy] = useState(false);
+  const list = parseList(raw);
+  const b = D.selBounds(objs);
+  const go = async () => {
+    setErr('');
+    if (!list.rows.length) { setErr('Paste the names first'); return; }
+    if (!texts.length) { setErr('Select the text to fill in (and any art that goes with it)'); return; }
+    if (list.rows.length > 500) { setErr('That is more than 500 rows — split the list'); return; }
+    setBusy(true);
+    try {
+      const sets = [];
+      for (let i = 0; i < list.rows.length; i++) {
+        const row = list.rows[i];
+        const c = Math.max(1, Math.round(cols));
+        const dx = mode === 'grid' ? (i % c) * (b.w + gap) : 0;
+        const dy = mode === 'grid' ? Math.floor(i / c) * (b.h + gap) : 0;
+        const gid = objs.length > 1 ? D.newId() : null;
+        const made = [];
+        for (const o of objs) {
+          let n = o.type === 'text' ? await retext(o, { text: fillText(o.text, row, list.headers) }) : JSON.parse(JSON.stringify(o));
+          n = { ...n, id: D.newId(), groupId: gid, x: o.x + dx, y: o.y + dy };
+          made.push(n);
+        }
+        sets.push(made);
+      }
+      onDone({ mode, sets, sourceIds: objs.map((o) => o.id), names: list.rows.map((r) => r[0] || '') });
+      onClose();
+    } catch (e) { setErr(e.message); } finally { setBusy(false); }
+  };
+  return (
+    <Modal title="Name list / variable data" onClose={onClose} foot={<><span className="error">{err}</span><div className="row"><button className="btn" onClick={onClose}>Cancel</button><button className="btn primary" disabled={busy} onClick={go}>{busy ? 'Making…' : `Make ${list.rows.length || ''}`}</button></div></>}>
+      <p className="muted small">{fields.length ? `The selected text uses ${fields.map((f) => `{${f}}`).join(', ')}. Paste a spreadsheet or CSV with those column names in the first row.` : 'Paste one name per line — each replaces the selected text. Or put {Name}, {Number}… in the text and paste a spreadsheet / CSV with those column names in the first row.'}</p>
+      <textarea className="dz-names" rows={8} value={raw} placeholder={fields.length ? `${fields.join(',')}\n…` : 'SMITH\nJONES\nGARCIA'} onChange={(e) => setRaw(e.target.value)} />
+      <p className="muted small">{list.rows.length} row{list.rows.length === 1 ? '' : 's'}{list.headers.length > 1 ? ` · columns: ${list.headers.join(', ')}` : ''}{list.rows[0] ? ` · first: ${texts[0] ? fillText(texts[0].text, list.rows[0], list.headers) : ''}` : ''}</p>
+      <div className="seg" style={{ margin: '6px 0' }}>
+        <button className={mode === 'grid' ? 'on' : ''} onClick={() => setMode('grid')}>Lay them out on this page (cut vinyl)</button>
+        <button className={mode === 'pages' ? 'on' : ''} onClick={() => setMode('pages')}>One page per name (print)</button>
+      </div>
+      {mode === 'grid' && (
+        <div className="dz-form">
+          <label className="dz-field"><span>Per row</span><input type="number" min={1} value={cols} onChange={(e) => setCols(parseInt(e.target.value, 10) || 1)} /></label>
+          <label className="dz-field"><span>Space between</span><div className="input-unit"><input type="number" step={0.0625} value={+(gap / MM).toFixed(3)} onChange={(e) => setGap((parseFloat(e.target.value) || 0) * MM)} /><em>in</em></div></label>
+        </div>
+      )}
+    </Modal>
   );
 }
 

@@ -79,14 +79,22 @@ async function buildDesignPdf(scene, { cut = 'spot', title } = {}) {
   for (const it of scene.items || []) {
     if (it.kind === 'image') {
       if (cut === 'only') continue;
-      let name = imgCache.get(it.dataUrl);
+      const key = it.cmyk ? `cmyk:${it.cmykKey || it.dataUrl.length}` : it.dataUrl;
+      let name = imgCache.get(key);
+      if (!name && it.cmyk) {
+        const { embedCmyk } = require('./pdfCmyk');
+        const emb = embedCmyk(doc, { w: it.cmyk.w, h: it.cmyk.h, bytes: Buffer.from(it.cmyk.base64, 'base64') });
+        name = `Im${imN++}`;
+        res('XObject').set(PDFName.of(name), emb.ref);
+        imgCache.set(key, name);
+      }
       if (!name) {
         const [head, b64] = String(it.dataUrl).split(',');
         const bytes = Buffer.from(b64 || '', 'base64');
         const emb = /png/i.test(head) ? await doc.embedPng(bytes) : await doc.embedJpg(bytes);
         name = `Im${imN++}`;
         res('XObject').set(PDFName.of(name), emb.ref);
-        imgCache.set(it.dataUrl, name);
+        imgCache.set(key, name);
       }
       // unit square y-down in mm -> PDF: image space has y up, so flip inside
       const [a, b, c, d, e, f] = it.m;

@@ -5,6 +5,7 @@ import React, { forwardRef, memo, useEffect, useImperativeHandle, useMemo, useRe
 import * as D from '../../lib/doc.js';
 import { SHAPES } from '../../lib/shapes.js';
 import { flattenCubic, isClosed } from '../../lib/geometry.js';
+import { UNIT } from './Panels.jsx';
 
 const MM = 25.4;
 const RULER = 22;
@@ -60,23 +61,27 @@ const ObjView = memo(function ObjView({ o, z, wire }) {
   );
 });
 
-function rulerStep(z) {
-  const steps = [1 / 16, 1 / 8, 1 / 4, 1 / 2, 1, 2, 6, 12, 24, 48, 120];
-  const minor = steps.find((s) => s * MM * z >= 7) || 120;
-  const major = steps.find((s) => s * MM * z >= 60 && s >= minor) || 120;
+// Ruler steps in the units on show (View › Units): inches, mm or cm
+const STEPS = { in: [1 / 16, 1 / 8, 1 / 4, 1 / 2, 1, 2, 6, 12, 24, 48, 120], mm: [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000], cm: [0.1, 0.2, 0.5, 1, 2, 5, 10, 20, 50, 100, 200, 500] };
+function rulerStep(z, units) {
+  const steps = STEPS[units.key] || STEPS.in, last = steps[steps.length - 1];
+  const minor = steps.find((s) => s * units.k * z >= 7) || last;
+  const major = steps.find((s) => s * units.k * z >= 60 && s >= minor) || last;
   return { minor, major };
 }
 const fmtIn = (v) => (Math.abs(v - Math.round(v)) < 1e-6 ? String(Math.round(v)) : v.toFixed(2).replace(/0+$/, ''));
 
 function Ruler({ axis, view, size, onGuideStart, cursor }) {
   const { z } = view;
-  const { minor, major } = rulerStep(z);
+  const U = UNIT;
+  const { minor, major } = rulerStep(z, U);
   const off = axis === 'x' ? view.vx : view.vy;
   const len = axis === 'x' ? size.w : size.h;
-  const from = Math.floor((-off / z / MM) / minor) * minor, to = ((len - off) / z / MM);
+  const from = Math.floor((-off / z / U.k) / minor) * minor, to = ((len - off) / z / U.k);
   const ticks = [];
-  for (let v = from; v <= to; v += minor) {
-    const px = off + v * MM * z;
+  for (let v = from; v <= to + 1e-9; v += minor) {
+    v = Math.round(v / minor) * minor;
+    const px = off + v * U.k * z;
     const isMajor = Math.abs(v / major - Math.round(v / major)) < 1e-6;
     const half = !isMajor && Math.abs((v * 2) / major - Math.round((v * 2) / major)) < 1e-6;
     const L = isMajor ? RULER : half ? 9 : 5;
@@ -628,7 +633,7 @@ const Canvas = forwardRef(function Canvas(props, ref) {
           {drawPreview()}
         </g>
       </svg>
-      <div className="dz-ruler-corner" title="Rulers in inches — drag from a ruler to add a guide" />
+      <div className="dz-ruler-corner" title={`Rulers in ${UNIT.label} — drag from a ruler to add a guide`}>{UNIT.label}</div>
       <div className="dz-ruler-top"><Ruler axis="x" view={view} size={size} onGuideStart={startGuide} cursor={cursor} /></div>
       <div className="dz-ruler-left"><Ruler axis="y" view={view} size={size} onGuideStart={startGuide} cursor={cursor} /></div>
       {tool === 'node' && nodeObj && !nodePts && <div className="dz-hint">This shape has {nodeCount.toLocaleString()} nodes — use Effects › Reduce nodes first to edit them.</div>}

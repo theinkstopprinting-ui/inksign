@@ -1,11 +1,9 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import DevicesView from './components/DevicesView.jsx';
 import QueueView from './components/QueueView.jsx';
-import CutStudio from './components/CutStudio.jsx';
 import Design from './components/design/Design.jsx';
 import PrintCut from './components/PrintCut.jsx';
 import Press from './components/Press.jsx';
-import WideFormat from './components/WideFormat.jsx';
 import Usage from './components/Usage.jsx';
 import Orders from './components/Orders.jsx';
 import Settings from './components/Settings.jsx';
@@ -18,6 +16,7 @@ import InventoryPage from './components/InventoryPage.jsx';
 import JobCenter from './components/server/JobCenter.jsx';
 import Home from './components/Home.jsx';
 import Icon from './components/shell/Icon.jsx';
+import { gatherLocal } from './lib/localPresets.js';
 
 const api = window.inksign;
 
@@ -46,13 +45,11 @@ const NAV = [
   ] },
 ];
 const LABEL = Object.fromEntries(NAV.flatMap((g) => g.items.map(([id, label, , help]) => [id, { label, help }])));
-// The three older screens Design & Cut replaces: off the menu, still reachable from Design › Help.
+// Long rolls of stickers printed in segments, each with its own marks: opened from Design › Tools.
 Object.assign(LABEL, {
-  studio: { label: 'Vinyl Cut Studio (older screen)', help: 'Now part of Design & Cut' },
-  printcut: { label: 'Print & Cut sheets (older screen)', help: 'Now part of Design & Cut' },
-  wide: { label: 'Wide Format roll layout (older screen)', help: 'Now part of Design & Cut' },
+  printcut: { label: 'Long-roll print & cut', help: 'Stickers down a long roll, in segments with their own marks' },
 });
-const FULL = ['design', 'studio', 'printcut', 'press', 'wide', 'mockup'];
+const FULL = ['design', 'printcut', 'press', 'mockup'];
 const NARROW_KEY = 'inksign.navNarrow';
 
 export default function App() {
@@ -102,6 +99,14 @@ export default function App() {
     const offReload = api.onReload(async () => { await reloadDevices(); setReloadKey((k) => k + 1); notice('Loaded the shared shop setup.'); });
     return () => { offJobs(); offNotice(); offOpen(); offUpd(); offDev(); offReload(); };
   }, [reloadDevices, notice, loadUsers]);
+
+  // Daily automatic backup (Settings › Backup) — checked at start and every few hours
+  useEffect(() => {
+    const go = () => api.backup.auto(gatherLocal()).then((r) => { if (r && r.error) notice(`Backup didn't run: ${r.error}`); }).catch(() => {});
+    const t0 = setTimeout(go, 60000);
+    const t = setInterval(go, 3 * 3600 * 1000);
+    return () => { clearTimeout(t0); clearInterval(t); };
+  }, [notice]);
 
   // Machine status for the top bar and Home (every minute)
   useEffect(() => {
@@ -183,9 +188,7 @@ export default function App() {
         {tab === 'home' && <Home devices={devices} statuses={statuses} jobs={jobs} userName={userState.current?.name} go={setTab} />}
         {/* The tools stay mounted so work isn't lost when you switch pages */}
         <div style={{ display: tab === 'design' ? 'contents' : 'none' }}><Design devices={devices} jobs={jobs} active={tab === 'design'} onJobsSent={() => {}} incoming={incoming} go={setTab} onDevicesChanged={reloadDevices} /></div>
-        <div style={{ display: tab === 'studio' ? 'contents' : 'none' }}><CutStudio devices={devices} jobs={jobs} incoming={incoming} onJobsSent={() => setTab('queue')} /></div>
         <div style={{ display: tab === 'printcut' ? 'contents' : 'none' }}><PrintCut devices={devices} incoming={incoming} onDevicesChanged={reloadDevices} /></div>
-        <div style={{ display: tab === 'wide' ? 'contents' : 'none' }}><WideFormat devices={devices} incoming={incoming} onJobsSent={() => setTab('queue')} /></div>
         <div style={{ display: tab === 'press' ? 'contents' : 'none' }}><Press devices={devices} incoming={incoming} onJobsSent={() => setTab('queue')} onServerSent={() => setTab('server')} /></div>
         <div style={{ display: tab === 'mockup' ? 'contents' : 'none' }}><Mockup /></div>
         {tab === 'orders' && <Orders openIn={openIn} focusOrder={focusOrder} goSettings={() => setTab('settings')} />}

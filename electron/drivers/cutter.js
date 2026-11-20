@@ -87,6 +87,24 @@ async function areaTest(cfg, paths) {
 }
 
 // Blade up, move to x,y mm from the origin set on the cutter.
+/**
+ * Titan mark sensor check (read only — nothing moves): set the sensor light level, then ask for one
+ * reading, and hand back exactly what the cutter answered. Commands from VinylMaster's Barcode
+ * Controller (docs/titan-sensor-protocol.md); the answer's format is what this is here to find out.
+ */
+async function sensorCheck(cfg, level = 50) {
+  const miss = missing(cfg);
+  if (miss.length) throw new Error(`Set up the cutter first: ${miss.join(', ')}`);
+  const lv = Math.max(10, Math.min(100, Math.round(Number(level) || 50)));
+  const steps = [[`CMD:13,${lv};`, 'set sensor level'], ['CMD:4;', 'read sensor']];
+  const out = [];
+  for (const [cmd, what] of steps) {
+    const raw = await T.queryViaConnection(cfg, Buffer.from(cmd, 'latin1'), 3000);
+    out.push({ cmd, what, raw: String(raw || ''), shown: String(raw || '').replace(/\r/g, '⏎').replace(/[^\x20-\x7e⏎]/g, (c) => `<${c.charCodeAt(0).toString(16).padStart(2, '0')}>`) });
+  }
+  return { level: lv, steps: out };
+}
+
 /** Poll size: ask the cutter what media is loaded */
 async function pollSize(cfg) {
   const miss = missing(cfg);
@@ -123,5 +141,5 @@ async function sendFile(cfg, filePath, { jobName } = {}) {
 
 module.exports = {
   id: 'cutter', name: 'Vinyl / contour cutter (HP-GL / GP-GL)', kind: 'cutter',
-  fields, fileTypes: PASSTHROUGH, missing, checkStatus, sendTest, sendFile, sendPaths, jog, cancelSpool, areaTest, pollSize,
+  fields, fileTypes: PASSTHROUGH, missing, checkStatus, sendTest, sendFile, sendPaths, jog, cancelSpool, areaTest, pollSize, sensorCheck,
 };

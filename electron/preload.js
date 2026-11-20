@@ -25,6 +25,7 @@ contextBridge.exposeInMainWorld('inksign', {
     jog: (id, move) => ipcRenderer.invoke('cutter:jog', id, move),
     areaTest: (id, paths, overrides) => ipcRenderer.invoke('cutter:areaTest', id, paths, overrides),
     pollSize: (id) => ipcRenderer.invoke('cutter:pollSize', id),
+    sensorCheck: (id, level) => ipcRenderer.invoke('cutter:sensorCheck', id, level),
     setStart: (id, here) => ipcRenderer.invoke('cutter:setStart', id, here),
     roll: (id, patch) => ipcRenderer.invoke('cutter:roll', id, patch),
     pause: (id, paused) => ipcRenderer.invoke('cutter:pause', id, paused),
@@ -65,6 +66,13 @@ contextBridge.exposeInMainWorld('inksign', {
   history: {
     list: () => ipcRenderer.invoke('history:list'),
     reprint: (id, deviceId) => ipcRenderer.invoke('history:reprint', id, deviceId),
+  },
+  backup: {
+    state: () => ipcRenderer.invoke('backup:state'),
+    pickFolder: () => ipcRenderer.invoke('backup:pickFolder'),
+    now: (localStore, folder) => ipcRenderer.invoke('backup:now', localStore, folder),
+    restore: () => ipcRenderer.invoke('backup:restore'),
+    auto: (localStore) => ipcRenderer.invoke('backup:auto', localStore),
   },
   timers: {
     list: () => ipcRenderer.invoke('timers:list'),
@@ -191,6 +199,11 @@ contextBridge.exposeInMainWorld('inksign', {
     exportFile: (format, scene, name, text) => ipcRenderer.invoke('design:export', format, scene, name, text),
     print: (deviceId, scene, job) => ipcRenderer.invoke('design:print', deviceId, scene, job),
     pdfBytes: (scene, cut) => ipcRenderer.invoke('design:pdfBytes', scene, cut),
+    saveProof: (scene, info) => ipcRenderer.invoke('design:saveProof', scene, info),
+    pagesPdf: (scenes, cut, title) => ipcRenderer.invoke('design:pagesPdf', scenes, cut, title),
+    autosave: (data) => ipcRenderer.invoke('design:autosave', data),
+    recover: () => ipcRenderer.invoke('design:recover'),
+    dropRecovery: () => ipcRenderer.invoke('design:dropRecovery'),
   },
   files: {
     saveJob: (name, data) => ipcRenderer.invoke('files:saveJob', name, data),

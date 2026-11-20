@@ -4,6 +4,11 @@ import React, { useEffect, useMemo, useState } from 'react';
 import * as D from '../../lib/doc.js';
 
 export const MM = 25.4;
+// The units the Design workspace shows (View › Units). Every length is kept in mm; this only changes how
+// the boxes read. Design.jsx calls setUnits() when you switch.
+export const UNIT = { key: 'in', k: 25.4, dp: 3, step: 0.125, label: 'in' };
+const UNIT_SET = { in: { k: 25.4, dp: 3, step: 0.125, label: 'in' }, mm: { k: 1, dp: 1, step: 1, label: 'mm' }, cm: { k: 10, dp: 2, step: 0.1, label: 'cm' } };
+export function setUnits(key) { Object.assign(UNIT, { key: UNIT_SET[key] ? key : 'in', ...(UNIT_SET[key] || UNIT_SET.in) }); }
 export const SIGN_SWATCHES = [
   ['#000000', 'Black'], ['#ffffff', 'White'], ['#e31b23', 'Red'], ['#b5121b', 'Cardinal'], ['#ff6a13', 'Orange'], ['#ffc72c', 'Sunflower'],
   ['#fff200', 'Yellow'], ['#78be20', 'Lime'], ['#00843d', 'Green'], ['#00594f', 'Forest'], ['#00a3e0', 'Light blue'], ['#0057b8', 'Blue'],
@@ -12,14 +17,17 @@ export const SIGN_SWATCHES = [
 ];
 
 /** A number box in inches (stores mm) that commits on Enter / blur */
-export function InchIn({ label, mm, onCommit, digits = 3, unit = 'in', disabled, title, step = 0.125 }) {
-  const fmt = (v) => (v == null || Number.isNaN(v) ? '' : String(+(v / MM).toFixed(digits)));
+export function InchIn({ label, mm, onCommit, digits, unit, disabled, title, step }) {
+  const k = UNIT.k;
+  const dp = digits ?? (UNIT.key === 'in' ? 3 : UNIT.dp + 1);
+  const fmt = (v) => (v == null || Number.isNaN(v) ? '' : String(+(v / k).toFixed(dp)));
   const [txt, setTxt] = useState(fmt(mm));
-  useEffect(() => setTxt(fmt(mm)), [mm]);
+  useEffect(() => setTxt(fmt(mm)), [mm, UNIT.key]); // eslint-disable-line react-hooks/exhaustive-deps
   const go = () => {
-    const v = parseFloat(String(txt).replace(/["\s]|in$/g, ''));
-    if (Number.isFinite(v) && fmt(mm) !== txt) onCommit(v * MM); else setTxt(fmt(mm));
+    const v = parseFloat(String(txt).replace(/["\s]|in$|mm$|cm$/g, ''));
+    if (Number.isFinite(v) && fmt(mm) !== txt) onCommit(v * k); else setTxt(fmt(mm));
   };
+  step = step ?? UNIT.step; unit = UNIT.label;
   return (
     <label className="dz-num" title={title}>
       {label && <span>{label}</span>}
@@ -258,7 +266,7 @@ export function FillStroke({ objs, apply, swatches, addSwatch }) {
       <div className="box-title" style={{ marginTop: 10 }}>Outline (stroke)</div>
       <div className="row">
         <label className="check"><input type="checkbox" checked={!!st.color && st.width > 0} onChange={(e) => setStroke(e.target.checked ? { color: st.color || '#000000', width: st.width || 0.5 } : { color: null, width: 0 })} /> Outline</label>
-        {st.color && st.width > 0 && <InchIn label="" unit="in" digits={4} step={0.01} mm={st.width} onCommit={(v) => setStroke({ width: Math.max(0.01, v) })} title="Outline width" />}
+        {st.color && st.width > 0 && <InchIn label="" digits={UNIT.key === 'in' ? 4 : 2} step={UNIT.key === 'in' ? 0.01 : 0.1} mm={st.width} onCommit={(v) => setStroke({ width: Math.max(0.01, v) })} title="Outline width" />}
       </div>
       {st.color && st.width > 0 && <ColorMixer color={st.color} onChange={(c) => setStroke({ color: c })} label="Outline color" />}
       {swatches.length > 0 && (

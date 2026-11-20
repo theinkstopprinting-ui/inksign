@@ -1,7 +1,7 @@
 // Dialogs for the Design workspace: effect settings (one generic form driven by a field list),
 // RIP and Print, Print & Cut, and Job Info. (Cut / Plot is the Send to be Cut window, CutWindow.jsx.)
 import React, { useEffect, useMemo, useState } from 'react';
-import { MM } from './Panels.jsx';
+import { MM, UNIT } from './Panels.jsx';
 import { jobBarcode } from '../../lib/jobBarcode.js';
 
 const api = window.inksign;
@@ -48,7 +48,7 @@ export function ParamDialog({ id, title, intro, fields, okLabel = 'Apply', onOk,
         {fields.filter((f) => !f.show || f.show(v)).map((f) => (
           <label key={f.key} className={`dz-field ${f.type === 'bool' ? 'dz-field-check' : ''}`} title={f.help}>
             {f.type !== 'bool' && <span>{f.label}</span>}
-            {f.type === 'in' && <div className="input-unit"><input type="number" step={f.step ?? 0.0625} value={+(Number(v[f.key]) / MM).toFixed(4)} onChange={(e) => set(f.key, (parseFloat(e.target.value) || 0) * MM)} /><em>in</em></div>}
+            {f.type === 'in' && <div className="input-unit"><input type="number" step={UNIT.key === 'in' ? (f.step ?? 0.0625) : UNIT.step} value={+(Number(v[f.key]) / UNIT.k).toFixed(UNIT.key === 'in' ? 4 : 2)} onChange={(e) => set(f.key, (parseFloat(e.target.value) || 0) * UNIT.k)} /><em>{UNIT.label}</em></div>}
             {f.type === 'num' && <div className="input-unit"><input type="number" step={f.step ?? 1} value={v[f.key]} onChange={(e) => set(f.key, parseFloat(e.target.value) || 0)} />{f.unit && <em>{f.unit}</em>}</div>}
             {f.type === 'text' && <input type="text" value={v[f.key] ?? ''} onChange={(e) => set(f.key, e.target.value)} />}
             {f.type === 'textarea' && <textarea rows={3} value={v[f.key] ?? ''} onChange={(e) => set(f.key, e.target.value)} />}
@@ -126,7 +126,7 @@ export function PrintDialog({ devices, doc, scene, onClose, onSent, defaultName 
 }
 
 // ---------------- Print & Cut ----------------
-export function PrintCutDialog({ devices, doc, sceneFor, cutPaths, onClose, onSent, defaultName, onAddCut }) {
+export function PrintCutDialog({ devices, doc, sceneFor, cutPaths, onClose, onSent, defaultName, onAddCut, inkflow, colorize }) {
   const printers = devices.filter((d) => d.kind === 'printer');
   const cutters = devices.filter((d) => d.kind === 'cutter');
   const [printerId, setPrinterId] = useState(recall('printer') || printers[0]?.id || '');
@@ -144,6 +144,12 @@ export function PrintCutDialog({ devices, doc, sceneFor, cutPaths, onClose, onSe
   const [busy, setBusy] = useState(false);
   const [useCode, setUseCode] = useState(recall('jobBarcode') !== 'off');
   const [jobNo, setJobNo] = useState('');
+  // HP Latex roll print & cut: the media preset (Print window › Saved media preset) picks the HP media and mode
+  const [wideMedia, setWideMedia] = useState([]);
+  useEffect(() => { api.settings.get().then((s) => setWideMedia((s.wideMedia || []).filter((m) => m.hpMediaId))).catch(() => {}); }, []);
+  const [hpPreset, setHpPreset] = useState(recall('hpPreset') || '');
+  const isHp = printer?.driver === 'hp-latex';
+  const hp = isHp ? wideMedia.find((m) => m.name === hpPreset) : null;
   const marks = { margin: marginIn * MM, size: markIn * MM, thickness: titan ? 1 : 0.5 };
   const clear = marks.margin + marks.size + 2;
   const art = sceneFor(marks);
@@ -158,7 +164,9 @@ export function PrintCutDialog({ devices, doc, sceneFor, cutPaths, onClose, onSe
         const barcode = jobBarcode(doc.page, marks, no);
         if (barcode) out = sceneFor({ ...marks, barcode }); else no = '';
       }
-      await api.design.print(printer.id, out, { name: `${name} (print)`, keepCutLines: printer.driver === 'flexi-hotfolder' });
+      if (colorize) out = await colorize(out, printer);
+      await api.design.print(printer.id, out, { name: `${name} (print)`, keepCutLines: printer.driver === 'flexi-hotfolder', hpMediaId: hp?.hpMediaId, hpModeKey: hp?.hpModeKey });
+      if (isHp) remember('hpPreset', hpPreset);
       if (no) await api.printcut.saveJob(no, { name, sheetW: doc.page.w, sheetH: doc.page.h, cutPaths, marks });
       setJobNo(no);
       remember('printer', printer.id); remember('jobBarcode', useCode ? 'on' : 'off');
@@ -169,7 +177,7 @@ export function PrintCutDialog({ devices, doc, sceneFor, cutPaths, onClose, onSe
   const cut = async () => {
     setErr(''); setBusy(true);
     try {
-      await api.printcut.cut(cutter.id, { name, sheetW: doc.page.w, sheetH: doc.page.h, cutPaths, marks });
+      await api.printcut.cut(cutter.id, { name, sheetW: doc.page.w, sheetH: doc.page.h, cutPaths, marks, inkflow: inkflow ? { ...inkflow, status: 'cut' } : undefined });
       remember('cutter', cutter.id);
       onSent(`Contour cut for “${name}” sent to ${cutter.name}`);
       onClose();
@@ -185,6 +193,15 @@ export function PrintCutDialog({ devices, doc, sceneFor, cutPaths, onClose, onSe
       <div className="dz-form">
         <label className="dz-field"><span>Job name</span><input type="text" value={name} onChange={(e) => setName(e.target.value)} /></label>
         <label className="dz-field"><span>Printer</span><select value={printer?.id || ''} onChange={(e) => setPrinterId(e.target.value)}>{printers.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}</select></label>
+        {isHp && (
+          <label className="dz-field"><span>HP media preset</span>
+            <select value={hpPreset} onChange={(e) => setHpPreset(e.target.value)}>
+              <option value="">What's set on the printer</option>
+              {wideMedia.map((m) => <option key={m.name} value={m.name}>{m.name}</option>)}
+            </select>
+            {!wideMedia.length && <small className="muted">Save one from the Print window (Print mode & color › Saved media preset)</small>}
+          </label>
+        )}
         <label className="dz-field"><span>Cutter</span><select value={cutter?.id || ''} onChange={(e) => setCutterId(e.target.value)}>{cutters.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}</select></label>
         <label className="dz-field"><span>Marks from the page edge</span><div className="input-unit"><input type="number" step={0.05} value={marginIn} onChange={(e) => setMarginIn(parseFloat(e.target.value) || 0)} /><em>in</em></div></label>
         <label className="dz-field"><span>Mark size</span><div className="input-unit"><input type="number" step={0.05} value={+markIn.toFixed(3)} onChange={(e) => setMarkIn(parseFloat(e.target.value) || 0)} /><em>in</em></div>{titan && <small className="muted">Titan: 26 mm marks, 1 mm thick — the same as Flexi prints</small>}</label>

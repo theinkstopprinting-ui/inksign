@@ -14,7 +14,14 @@ export default function TimerWidget({ notice }) {
   const [order, setOrder] = useState(null);
   const [, tick] = useState(0);
   const load = async () => setT(await api.timers.list());
-  useEffect(() => { load(); const i = setInterval(() => tick((x) => x + 1), 30000); return () => clearInterval(i); }, []);
+  useEffect(() => {
+    load();
+    const i = setInterval(() => tick((x) => x + 1), 30000);
+    // timers started or stopped from Design & Cut or the cut window
+    const h = () => load();
+    window.addEventListener('inksign-timers', h);
+    return () => { clearInterval(i); window.removeEventListener('inksign-timers', h); };
+  }, []);
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
@@ -28,6 +35,7 @@ export default function TimerWidget({ notice }) {
     try {
       const r = await api.timers.stop(id, { discard });
       setT(r.timers);
+      window.dispatchEvent(new Event('inksign-timers'));
       if (r.entry) notice(`${r.entry.task}: ${r.entry.minutes} min ($${(r.entry.costCents / 100).toFixed(2)})${r.entry.sentToInkFlow ? ' added to the order in InkFlow' : r.entry.orderId ? '' : ' logged'}.${r.note ? ` ${r.note}` : ''}`);
     } catch (e) { notice(clean(e.message)); }
   };

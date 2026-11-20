@@ -8,6 +8,7 @@ import { plan, fitScale, printableWidth, shownSize, trimLines, LABEL_MM } from '
 import { renderPages, b64ToBytes } from '../lib/pdfRender.js';
 import HpProfileMaker from './HpProfileMaker.jsx';
 import { supplyWarnings } from '../lib/supplies.js';
+import QuoteDialog from './QuoteDialog.jsx';
 
 const api = window.inksign;
 const MM = 25.4;
@@ -48,7 +49,7 @@ function Num({ label, value, onChange, unit, step = 1, min = 0, icon, title }) {
  * props: devices, jobs, source ({ scene } or { pdfBase64 }), previewPdfBase64 (job PDF for the thumbnail),
  *        jobSize { w, h } (mm), name, hasCutLines, onClose, onSent(text)
  */
-export default function PrintWindow({ devices, jobs = [], source, previewPdfBase64, jobSize, name, hasCutLines, onClose, onSent }) {
+export default function PrintWindow({ devices, jobs = [], source, previewPdfBase64, jobSize, name, hasCutLines, onClose, onSent, inkflow, colorize, makeProof }) {
   const printers = devices.filter((d) => d.kind === 'printer');
   const saved = useMemo(load, []);
   const [deviceId, setDeviceId] = useState(saved.deviceId && printers.some((p) => p.id === saved.deviceId) ? saved.deviceId : printers[0]?.id || '');
@@ -76,8 +77,35 @@ export default function PrintWindow({ devices, jobs = [], source, previewPdfBase
   const [busy, setBusy] = useState(false);
   const [profMaker, setProfMaker] = useState(false);
   const up = (patch) => setSet((s) => ({ ...s, ...patch }));
+  // Media presets (Settings › wide-format media): cost per sq ft and ink per sq ft, plus the HP media,
+  // print mode, profile and intent saved with it — pick one and the color settings come with it
+  const [settings, setSettings] = useState(null);
+  useEffect(() => { api.settings.get().then(setSettings).catch(() => {}); }, []);
+  const [presetName, setPresetName] = useState(saved.preset || '');
+  const preset = settings?.wideMedia?.find((m) => m.name === presetName) || null;
+  const pickPreset = (n) => {
+    setPresetName(n);
+    const m = settings?.wideMedia?.find((x) => x.name === n);
+    if (!m) return;
+    setColor((c) => ({ ...c, ...(m.hpMediaId ? { mediaId: m.hpMediaId } : {}), ...(m.hpModeKey ? { modeKey: m.hpModeKey } : {}), ...(m.icc ? { icc: m.icc } : {}), ...(m.intent != null && m.intent !== '' ? { intent: String(m.intent) } : {}) }));
+    if (m.margins) setMedia((x) => ({ ...x, margins: { ...x.margins, ...m.margins } }));
+  };
+  const [newPreset, setNewPreset] = useState('');
+  const savePreset = async () => {
+    const n = (newPreset || presetName).trim();
+    if (!n || !settings) return;
+    const old = settings.wideMedia.find((m) => m.name === n) || { costPerSqFt: 0, inkMlPerSqFt: 1 };
+    const entry = { ...old, name: n, hpMediaId: isHp ? color.mediaId : old.hpMediaId, hpModeKey: isHp ? color.modeKey : old.hpModeKey, icc: isHp ? color.icc : old.icc, intent: isHp ? color.intent : old.intent, margins: media.margins };
+    const wideMedia = [...settings.wideMedia.filter((m) => m.name !== n), entry];
+    await api.settings.save({ wideMedia });
+    setSettings({ ...settings, wideMedia }); setPresetName(n); setNewPreset('');
+  };
+  const [rolls, setRolls] = useState([]);
+  useEffect(() => { api.shopflow.rolls().then(setRolls).catch(() => setRolls([])); }, []);
+  const [rollId, setRollId] = useState('');
+  const [quoting, setQuoting] = useState(false);
 
-  useEffect(() => { save({ deviceId, margins: media.margins, set: { gapX: set.gapX, gapY: set.gapY, overlap: set.overlap, labels: set.labels, trim: set.trim, tile: set.tile }, color }); }, [deviceId, media.margins, set, color]);
+  useEffect(() => { save({ preset: presetName, deviceId, margins: media.margins, set: { gapX: set.gapX, gapY: set.gapY, overlap: set.overlap, labels: set.labels, trim: set.trim, tile: set.tile }, color }); }, [deviceId, media.margins, set, color]);
   useEffect(() => {
     if (!previewPdfBase64) return;
     renderPages(b64ToBytes(previewPdfBase64), { maxPages: 1, width: 1000 }).then((r) => setThumb(r.images[0])).catch(() => setThumb(null));
@@ -137,7 +165,10 @@ export default function PrintWindow({ devices, jobs = [], source, previewPdfBase
     try {
       if (isRoll && p.problems.length) throw new Error(p.problems[0]);
       const layout = isRoll ? { pieces: p.pieces, usedW: p.usedW, usedL: p.usedL, scale: set.scale, rotate: set.rotate, labels: p.labels.map((l) => ({ ...l, text: labelText })), trim: set.trim ? trimLines(p.pieces) : [] } : null;
-      await api.print.send(dev.id, source, layout, {
+      const src = colorize && source.scene ? { ...source, scene: await colorize(source.scene, dev) } : source;
+      await api.print.send(dev.id, src, layout, {
+        inkflow: inkflow ? { ...inkflow, status: 'printed' } : undefined,
+        rollId: rollId || undefined, media: preset?.name || undefined, cost: isRoll ? cost : undefined,
         name: jobName, sendMode, repeat, keepCutLines: color.keepCut, rightMarginMm: media.margins.right, mediaWidthMm: media.widthMm,
         hpMediaId: isHp ? color.mediaId : undefined, hpModeKey: isHp ? color.modeKey : undefined, icc: isHp ? color.icc : undefined, intent: isHp ? color.intent : undefined,
       });
@@ -149,6 +180,24 @@ export default function PrintWindow({ devices, jobs = [], source, previewPdfBase
   const devJobs = jobs.filter((j) => j.deviceId === deviceId).slice(-6).reverse();
   const usedFt = p.usedL / MM / 12;
   const sqft = (p.usedL * media.widthMm) / (MM * MM * 144);
+  // cost: the media used off the roll and the ink for what's printed
+  const printedSqFt = isRoll ? p.pieces.reduce((s, pc) => s + (pc.w * pc.h) / (MM * MM * 144), 0) : 0;
+  const cost = useMemo(() => {
+    if (!isRoll || !settings) return null;
+    const inkMl = printedSqFt * (Number(preset?.inkMlPerSqFt) || 0);
+    const mediaCost = sqft * (Number(preset?.costPerSqFt) || 0);
+    const inkCost = inkMl * (Number(settings.inkCostPerMl) || 0);
+    const pr = settings.pricing || {};
+    const laborMin = (Number(pr.setupMin) || 0) + usedFt * 0.5;
+    const labor = (laborMin / 60) * (Number(pr.laborPerHour) || 0);
+    const price = Math.max(Number(pr.minimum) || 0, (mediaCost + inkCost + labor) * (Number(pr.markup) || 1));
+    return { mediaSqFt: sqft, printedSqFt, inkMl, mediaCost, inkCost, labor, laborMin, price, feet: usedFt };
+  }, [isRoll, settings, preset, sqft, printedSqFt, usedFt]);
+  const quoteLines = () => [{
+    description: jobName || 'Print', quantity: Math.max(1, set.copies || 1), unitPriceCents: Math.round(((cost?.price || 0) / Math.max(1, set.copies || 1)) * 100),
+    widthIn: Math.round((sz.w / MM) * 100) / 100, heightIn: Math.round((sz.h / MM) * 100) / 100, material: preset?.name || '',
+    notes: cost ? `${cost.mediaSqFt.toFixed(1)} sq ft media, ${cost.inkMl.toFixed(0)} ml ink` : '',
+  }];
   const marginSet = (k, v) => setMedia((m) => ({ ...m, margins: { ...m.margins, [k]: Math.max(0, v) } }));
 
   return (
@@ -277,6 +326,31 @@ export default function PrintWindow({ devices, jobs = [], source, previewPdfBase
 
             {tab === 'color' && (
               <div className="pw-panel">
+                <fieldset>
+                  <legend>Saved media preset</legend>
+                  <label className="pw-row"><span>Preset</span>
+                    <select value={presetName} onChange={(e) => pickPreset(e.target.value)}>
+                      <option value="">— none —</option>
+                      {(settings?.wideMedia || []).map((m) => <option key={m.name} value={m.name}>{m.name}{m.hpMediaId ? ' ★' : ''}</option>)}
+                    </select>
+                  </label>
+                  <div className="row small">
+                    <input type="text" placeholder={presetName || 'Name, e.g. 13oz banner — production'} value={newPreset} onChange={(e) => setNewPreset(e.target.value)} />
+                    <button className="btn small" disabled={!(newPreset.trim() || presetName)} onClick={savePreset}>{newPreset.trim() && newPreset.trim() !== presetName ? 'Save as new preset' : 'Save to this preset'}</button>
+                  </div>
+                  <div className="muted small">A preset keeps the HP media, print mode, profile, intent and margins below, and the cost of the media and ink. ★ = has print settings saved.</div>
+                </fieldset>
+                {isRoll && rolls.length > 0 && (
+                  <fieldset>
+                    <legend>Roll stock (InkFlow)</legend>
+                    <label className="pw-row"><span>Take it off</span>
+                      <select value={rollId} onChange={(e) => setRollId(e.target.value)}>
+                        <option value="">Don't track</option>
+                        {rolls.map((r) => <option key={r.id} value={r.id}>{r.widthIn}″ {r.materialName}{r.color ? ` ${r.color}` : ''} — {Math.round(r.remainingFeet)} ft left</option>)}
+                      </select>
+                    </label>
+                  </fieldset>
+                )}
                 {isHp ? (
                   <fieldset>
                     <legend>Output settings</legend>
@@ -354,6 +428,12 @@ export default function PrintWindow({ devices, jobs = [], source, previewPdfBase
           <div className="pw-sum">
             {isRoll ? <>Printed {fmt(sz.w, 2)}″ × {fmt(sz.h, 2)}″{set.copies > 1 ? ` × ${set.copies}` : ''}{p.tiles > 1 ? ` in ${p.tiles} panels` : ''} · uses {usedFt < 1 ? `${fmt(p.usedL, 1)}″` : `${usedFt.toFixed(2)} ft`} of media ({sqft.toFixed(1)} sq ft)</> : `${fmt(job.w, 2)}″ × ${fmt(job.h, 2)}″ page`}
           </div>
+          {cost && (
+            <div className="pw-cost" title={`Media ${cost.mediaSqFt.toFixed(1)} sq ft · ink ${cost.inkMl.toFixed(0)} ml · labor ~${Math.round(cost.laborMin)} min`}>
+              {preset ? <>Media ${cost.mediaCost.toFixed(2)} · ink ${cost.inkCost.toFixed(2)} · <b>suggested ${cost.price.toFixed(2)}</b></> : <span className="muted">Pick a media preset for the cost</span>}
+              <button className="btn small" onClick={() => setQuoting(true)}>Quote…</button>
+            </div>
+          )}
           <span className="error">{err || (isRoll && p.problems[0]) || ''}</span>
           <div className="row">
             <button className="btn" onClick={onClose}>Done</button>
@@ -361,6 +441,7 @@ export default function PrintWindow({ devices, jobs = [], source, previewPdfBase
           </div>
         </div>
       </div>
+      {quoting && <QuoteDialog lines={quoteLines()} defaultName={jobName} makeProof={makeProof} onClose={() => setQuoting(false)} />}
       {profMaker && dev && (
         <HpProfileMaker devices={devices} deviceId={dev.id} mediaId={color.mediaId} modeKey={color.modeKey}
           onClose={async () => { setProfMaker(false); setProfiles(await api.print.fieldOptions(dev.id, 'hpProfile').catch(() => profiles)); }} />

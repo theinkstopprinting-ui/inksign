@@ -1,5 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { planCut, areaBox, usageReport, TOOL_PRESETS, MM } from '../lib/cutPlan.js';
+import QuoteDialog from './QuoteDialog.jsx';
+import MaterialsEditor from './MaterialsEditor.jsx';
 
 // "Send to be Cut" — the cut window, laid out like VinylMaster's: General, Cutter control, Settings and
 // Tiling / panels on the left; on the right the vinyl as it comes out of the cutter with the job on it.
@@ -97,7 +99,7 @@ function Preview({ job, mediaMm, pos, onMove }) {
   );
 }
 
-export default function CutWindow({ devices, groupsFor, hasCutLines, hasSelection, defaultName, onClose, onSent, inkflow }) {
+export default function CutWindow({ devices, jobs: queueJobs = [], groupsFor, hasCutLines, hasSelection, defaultName, onClose, onSent, inkflow, makeProof }) {
   const cutters = devices.filter((d) => d.kind === 'cutter');
   const [deviceId, setDeviceId] = useState(load('cutter', '') || cutters[0]?.id || '');
   const dev = cutters.find((d) => d.id === deviceId) || cutters[0];
@@ -112,7 +114,7 @@ export default function CutWindow({ devices, groupsFor, hasCutLines, hasSelectio
   useEffect(() => { setMediaMm((Number(dev?.config?.mediaWidthIn) || 24) * MM); }, [dev?.id]);
   const [o, setO] = useState(() => ({
     rotate: false, mirror: false, copies: 1, copyGapMm: 6.35, weldOverlaps: false, weedBox: false, speedWeed: false,
-    weedOffsetMm: load('weedOffsetMm', 5), easyLift: false, regMarks: false, cutHolesFirst: true, passes: 1, dash: null,
+    weedOffsetMm: load('weedOffsetMm', 5), weedLines: false, weedLineSpacingMm: load('weedLineSpacingMm', 76.2), weedLineDir: 'vertical', easyLift: false, regMarks: false, cutHolesFirst: true, passes: 1, dash: null,
     autoTile: false, tileLengthMm: 0, tileOverlapMm: 10,
   }));
   const set = (patch) => setO((v) => ({ ...v, ...patch }));
@@ -141,6 +143,34 @@ export default function CutWindow({ devices, groupsFor, hasCutLines, hasSelectio
   };
   const dropPreset = () => { const next = mine.filter((p) => p.name !== preset); setMine(next); save('presets', next); setPreset(''); };
 
+  // Vinyl type (Settings › materials): its cost per foot, and the force / speed / overcut saved for it
+  const [settings, setSettings] = useState(null);
+  const [editMaterials, setEditMaterials] = useState(false);
+  useEffect(() => { api.settings.get().then(setSettings).catch(() => {}); }, []);
+  const [materialId, setMaterialId] = useState(() => load(`material.${deviceId}`, ''));
+  const material = settings?.materials.find((m) => m.id === materialId) || null;
+  const useMaterial = (id) => {
+    setMaterialId(id); save(`material.${dev?.id}`, id);
+    const m = settings?.materials.find((x) => x.id === id);
+    if (!m) return;
+    setPreset('');
+    setForce(m.force ?? ''); setSpeed(m.speed ?? ''); setOvercut(m.overcutMm ?? 0.5);
+    set({ mirror: !!m.mirror });
+  };
+  useEffect(() => { if (settings && materialId && material) useMaterial(materialId); }, [settings]); // eslint-disable-line react-hooks/exhaustive-deps
+  const saveToMaterial = async () => {
+    if (!material) return;
+    const next = settings.materials.map((m) => (m.id === material.id ? { ...m, force, speed, overcutMm: overcut } : m));
+    await api.settings.save({ materials: next });
+    setSettings({ ...settings, materials: next });
+    setMsg(`Saved force / speed / overcut to ${material.name}`);
+  };
+  // InkFlow roll stock: which roll each vinyl color comes off
+  const [rolls, setRolls] = useState([]);
+  const [rollMap, setRollMap] = useState({});
+  useEffect(() => { api.shopflow.rolls().then(setRolls).catch(() => setRolls([])); }, []);
+  const [quoting, setQuoting] = useState(false);
+
   const [page, setPage] = useState(0);
   const [msg, setMsg] = useState('');
   const [err, setErr] = useState('');
@@ -152,6 +182,28 @@ export default function CutWindow({ devices, groupsFor, hasCutLines, hasSelectio
   const cur = jobs[Math.min(page, Math.max(0, jobs.length - 1))];
   useEffect(() => { if (page > jobs.length - 1) setPage(0); }, [jobs.length]);
   const report = useMemo(() => usageReport(plan, mediaMm), [plan, mediaMm]);
+  // cost: vinyl used (+3″ lead on each piece) and labor, priced with Settings › pricing
+  const leadFt = 0.25;
+  const jobFeet = (j) => j.w / MM / 12 + leadFt;
+  const costPerFt = Number(material?.costPerFt) || 0;
+  const estimate = useMemo(() => {
+    if (!settings || !jobs.length) return null;
+    const pr = settings.pricing || {};
+    const feet = jobs.reduce((s, j) => s + jobFeet(j), 0);
+    const materialCost = feet * costPerFt;
+    const laborMin = (Number(pr.setupMin) || 0) + (plan.totalCutMm / MM / 12) * (Number(pr.weedMinPerFt) || 0) * 0.25 + feet * (Number(pr.weedMinPerFt) || 0);
+    const labor = (laborMin / 60) * (Number(pr.laborPerHour) || 0);
+    const price = Math.max(Number(pr.minimum) || 0, (materialCost + labor) * (Number(pr.markup) || 1));
+    return { feet, materialCost, laborMin, labor, price };
+  }, [settings, jobs, costPerFt, plan.totalCutMm]); // eslint-disable-line react-hooks/exhaustive-deps
+  const colorKeys = [...new Set(jobs.map((j) => j.color || '_all'))];
+  const rollFor = (j) => rollMap[j.color || '_all'] || rollMap._all || '';
+  const quoteLines = () => [{
+    description: `${name || 'Vinyl lettering / decal'}${colorKeys.length > 1 ? ` (${colorKeys.length} colors)` : ''}`,
+    quantity: 1, unitPriceCents: Math.round((estimate?.price || 0) * 100),
+    widthIn: Math.round(((cur?.w || 0) / MM) * 100) / 100, heightIn: Math.round(((cur?.h || 0) / MM) * 100) / 100,
+    material: material?.name || '', notes: `${(estimate?.feet || 0).toFixed(1)} ft vinyl, ${(plan.totalCutMm / MM / 12).toFixed(0)} ft cut`,
+  }];
   const overrides = { speed, force, overcutMm: overcut, posXmm: pos.x || '', posYmm: pos.y || '', absolute: absolute || '', advanceMm: advance ? '' : 0 };
 
   const run = async (fn) => {
@@ -166,11 +218,21 @@ export default function CutWindow({ devices, groupsFor, hasCutLines, hasSelectio
     paths: j.paths,
     hold: holdAll || (hold && i > 0),
     holdMessage: holdAll ? 'Spooled — press Release to cut' : j.color ? `Load ${j.name} vinyl, then press Release` : 'Load the next panel, then press Release',
-    meta: { cutMm: j.cutMm },
+    meta: {
+      cutMm: j.cutMm, rollId: rollFor(j) || undefined, feet: jobFeet(j),
+      costCents: Math.round(jobFeet(j) * costPerFt * 100), costNote: `${material?.name || 'Vinyl'} ${jobFeet(j).toFixed(1)} ft — ${j.name}`,
+    },
   }));
+  const [weedTimer, setWeedTimer] = useState(() => load('weedTimer', false));
+  const tooWide = () => plan.warnings.some((w) => /wider than/.test(w));
   const send = (holdAll) => run(async () => {
-    save('cutter', dev.id); save('weedOffsetMm', o.weedOffsetMm);
+    if (tooWide() && !window.confirm(`${plan.warnings.find((w) => /wider than/.test(w))}\n\nCut it anyway?`)) return;
+    save('cutter', dev.id); save('weedOffsetMm', o.weedOffsetMm); save('weedLineSpacingMm', o.weedLineSpacingMm);
     await api.jobs.sendCut(dev.id, { name, panels: panelsOut(holdAll), overrides, inkflow: inkflow || undefined });
+    if (inkflow && weedTimer && !holdAll) {
+      save('weedTimer', true);
+      try { await api.timers.start({ task: 'Weeding', orderId: inkflow.orderId, orderLabel: inkflow.label || null }); window.dispatchEvent(new Event('inksign-timers')); } catch { /* timer is optional */ }
+    } else if (inkflow) save('weedTimer', weedTimer);
     onSent(holdAll ? `Spooled ${jobs.length} cut job${jobs.length > 1 ? 's' : ''} for ${dev.name} — release them from the Job queue` : `Sent ${jobs.length} cut job${jobs.length > 1 ? 's' : ''} to ${dev.name}`);
     onClose();
   });
@@ -182,6 +244,20 @@ export default function CutWindow({ devices, groupsFor, hasCutLines, hasSelectio
   const pollSize = async () => {
     setPolling(true); setPollErr('');
     try { const r = await api.cutter.pollSize(dev.id); setPolled(r); setMediaMm(r.acrossMm); } catch (e) { setPolled(null); setPollErr(String(e.message || e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')); } finally { setPolling(false); }
+  };
+  // read the roll as soon as the window opens (and when you pick another cutter) — unless it's busy cutting
+  const [autoRead, setAutoRead] = useState(() => load('autoReadRoll', true));
+  useEffect(() => {
+    if (!dev || !autoRead || !dev.config?.connection) return;
+    if (queueJobs.some((j) => j.deviceId === dev.id && j.status === 'sending')) { setPollErr(`${dev.name} is cutting — press Read from cutter when it's done`); return; }
+    pollSize();
+  }, [dev?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Titan mark sensor check (read only)
+  const [sensorLevel, setSensorLevel] = useState(50);
+  const [sensor, setSensor] = useState(null);
+  const sensorCheck = async () => {
+    setErr(''); setSensor(null); setBusy(true);
+    try { setSensor(await api.cutter.sensorCheck(dev.id, sensorLevel)); } catch (e) { setErr(clean(e.message)); } finally { setBusy(false); }
   };
   const areaTest = () => run(async () => {
     const r = await api.cutter.areaTest(dev.id, [areaBox(cur)], overrides);
@@ -219,6 +295,16 @@ export default function CutWindow({ devices, groupsFor, hasCutLines, hasSelectio
                       </div>
                       <small className={pollErr ? 'error' : 'muted'}>{pollErr || (polled ? `The cutter reports ${(polled.acrossMm / MM).toFixed(2)}″ across${polled.alongMm > 0 ? `, ${polled.alongMm > 3000 ? 'a roll' : `${(polled.alongMm / MM).toFixed(1)}″ long`}` : ''}` : 'What you can cut across the roll')}</small>
                     </label>
+                    <label className="dz-field"><span>Vinyl</span>
+                      <div className="cw-poll">
+                        <select value={materialId} onChange={(e) => useMaterial(e.target.value)}>
+                          <option value="">— not set —</option>
+                          {(settings?.materials || []).map((m) => <option key={m.id} value={m.id}>{m.name}{m.costPerFt ? ` · $${Number(m.costPerFt).toFixed(2)}/ft` : ''}</option>)}
+                        </select>
+                        <button className="btn" onClick={() => setEditMaterials(true)} title="Vinyl types, their cost and cut settings, and pricing">Edit…</button>
+                      </div>
+                      <small className="muted">{material ? `Sets force${material.force ? ` ${material.force}` : ''}, speed${material.speed ? ` ${material.speed}` : ''}, overcut ${material.overcutMm ?? 0.5} mm${material.mirror ? ', mirrored' : ''}` : 'Pick it to use its saved cut settings and cost'}</small>
+                    </label>
                     <label className="dz-field"><span>Job name</span><input type="text" value={name} onChange={(e) => setName(e.target.value)} /></label>
                     <label className="dz-field"><span>Quantity</span><div className="input-unit"><input type="number" min={1} step={1} value={o.copies} onChange={(e) => set({ copies: Math.max(1, parseInt(e.target.value, 10) || 1) })} /><em>copies</em></div></label>
                     {o.copies > 1 && <Inches label="Space between copies" value={o.copyGapMm} onChange={(v) => set({ copyGapMm: v })} step={0.0625} />}
@@ -245,9 +331,31 @@ export default function CutWindow({ devices, groupsFor, hasCutLines, hasSelectio
                     <Check label="Registration marks" checked={o.regMarks} onChange={(v) => set({ regMarks: v })} title="Small squares in the same spot on every color, so the layers line up when you apply them" />
                     <Check label="Auto weed-box" checked={o.weedBox} onChange={(v) => set({ weedBox: v })} title="A box around the job" />
                     <Check label="Auto speed-weed" checked={o.speedWeed} onChange={(v) => set({ speedWeed: v })} title="The box plus a line between each row, so the waste pulls off in strips" />
+                    <Check label="Weed lines" checked={o.weedLines} onChange={(v) => set({ weedLines: v })} title="Cuts across the waste every few inches so big jobs peel off in sections" />
                     {jobs.length > 1 && <Check label="Hold each new color until it's loaded" checked={hold} onChange={setHold} />}
+                    {inkflow && <Check label={`Start a weeding timer for order ${inkflow.label || ''}`} checked={weedTimer} onChange={setWeedTimer} title="Starts when you press Cut Now — stop it from the sidebar when the weeding's done" />}
                   </div>
+                  {o.weedLines && (
+                    <div className="dz-form">
+                      <Inches label="Weed line every" value={o.weedLineSpacingMm} onChange={(v) => set({ weedLineSpacingMm: Math.max(12.7, v) })} step={0.5} />
+                      <label className="dz-field"><span>Weed lines run</span><select value={o.weedLineDir} onChange={(e) => set({ weedLineDir: e.target.value })}><option value="vertical">Across the roll</option><option value="horizontal">Along the roll</option></select></label>
+                    </div>
+                  )}
                 </fieldset>
+                {rolls.length > 0 && (
+                  <fieldset><legend>Roll stock (InkFlow)</legend>
+                    <div className="dz-form cw-one">
+                      {colorKeys.map((k) => (
+                        <label key={k} className="dz-field"><span>{k === '_all' ? 'Take the vinyl off' : `${jobs.find((j) => (j.color || '_all') === k)?.name || k} comes off`}</span>
+                          <select value={rollMap[k] || ''} onChange={(e) => setRollMap((m) => ({ ...m, [k]: e.target.value }))}>
+                            <option value="">Don't track</option>
+                            {rolls.map((r) => <option key={r.id} value={r.id}>{r.widthIn}″ {r.materialName}{r.color ? ` ${r.color}` : ''} — {Math.round(r.remainingFeet)} ft left</option>)}
+                          </select>
+                        </label>
+                      ))}
+                    </div>
+                  </fieldset>
+                )}
                 <fieldset><legend>Text options</legend>
                   <div className="cw-checks">
                     <Check label="Easy-lift weed marks" checked={o.easyLift} onChange={(v) => set({ easyLift: v })} title="A short cut inside every hole (O, A, e…) so the middles lift out quickly" />
@@ -284,7 +392,21 @@ export default function CutWindow({ devices, groupsFor, hasCutLines, hasSelectio
                   </div>
                   <p className="muted small">Leave force and speed empty to use what's set on the cutter. Blade offset is set on the cutter's own panel.</p>
                   <Check label="Cut holes first (insides before outsides, shortest travel)" checked={o.cutHolesFirst} onChange={(v) => set({ cutHolesFirst: v })} />
+                  {material && <button className="btn small" onClick={saveToMaterial} title="Next time you pick this vinyl, these settings come with it">Save these settings to “{material.name}”</button>}
                 </fieldset>
+                <fieldset><legend>Roll size</legend>
+                  <Check label="Read the roll size from the cutter when this window opens" checked={autoRead} onChange={(v) => { save('autoReadRoll', v); setAutoRead(v); setMsg(v ? 'The roll is read each time this window opens' : 'Press Read from cutter when you want it'); }} />
+                </fieldset>
+                {dev?.config?.hpglStyle === 'titan' && (
+                  <fieldset><legend>Mark sensor check (Titan)</legend>
+                    <p className="muted small">Sets the sensor light level and asks for one reading. Nothing moves and nothing is cut. Park the sensor over white vinyl, press Read, then over a black mark and press Read again, and send both answers to Claude so the barcode reader can be finished.</p>
+                    <div className="btn-row">
+                      <label className="dz-field" style={{ width: 120 }}><span>Light level</span><input type="number" min={10} max={100} value={sensorLevel} onChange={(e) => setSensorLevel(parseInt(e.target.value, 10) || 50)} /></label>
+                      <button className="btn small" disabled={busy || !dev} onClick={sensorCheck}>Read sensor</button>
+                    </div>
+                    {sensor && <pre className="cw-sensor">{sensor.steps.map((s) => `${s.cmd.padEnd(14)} (${s.what})  →  ${s.shown || '(no answer)'}`).join('\n')}</pre>}
+                  </fieldset>
+                )}
               </div>
             )}
 
@@ -350,6 +472,14 @@ export default function CutWindow({ devices, groupsFor, hasCutLines, hasSelectio
               <span>{(plan.mediaMm / MM / 12).toFixed(2)} ft of vinyl ({report.reduce((s, r) => s + r.sqFt, 0).toFixed(2)} sq ft)</span>
             </div>
             {plan.warnings.map((w) => <div key={w} className="warn-text small">⚠ {w}</div>)}
+            {estimate && (
+              <div className="cw-cost">
+                <span>Vinyl {estimate.feet.toFixed(1)} ft{costPerFt ? ` · $${estimate.materialCost.toFixed(2)}` : ' · pick the vinyl for its cost'}</span>
+                <span>Labor ~{Math.round(estimate.laborMin)} min · ${estimate.labor.toFixed(2)}</span>
+                <b>Suggested price ${estimate.price.toFixed(2)}</b>
+                <button className="btn small" onClick={() => setQuoting(true)}>Quote…</button>
+              </div>
+            )}
           </div>
         </div>
         <div className="modal-foot">
@@ -363,6 +493,11 @@ export default function CutWindow({ devices, groupsFor, hasCutLines, hasSelectio
           </div>
         </div>
       </div>
+      {quoting && <QuoteDialog lines={quoteLines()} defaultName={name} makeProof={makeProof} onClose={() => setQuoting(false)} />}
+      {editMaterials && settings && (
+        <MaterialsEditor settings={settings} onClose={() => setEditMaterials(false)}
+          onSave={async (patch) => { await api.settings.save(patch); const s = await api.settings.get(); setSettings(s); setEditMaterials(false); }} />
+      )}
     </div>
   );
 }

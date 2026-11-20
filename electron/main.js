@@ -95,6 +95,7 @@ function registerIpc() {
     else if (kind === 'wide') bytes = (await buildWidePdf(layoutWide({ items: payload.items, ...payload.opts }), { showGrommets: true, white: payload.opts.white ? { ...payload.opts.white } : null })).pdf;
     else if (kind === 'press') bytes = (await impose(pressSource(payload.src), payload.opts)).pdf;
     else if (kind === 'printcut') bytes = await buildPrintCutPdf({ ...payload.job, cutContour: true });
+    else if (kind === 'design') bytes = await require('./lib/proofPdf').buildProofPdf(payload.scene, { shop: store.getSettings().shopName || 'The Ink Stop', ...payload.info });
     else throw new Error('Unknown proof');
     return inkflow.sendProof(store.getSettings().inkflow || {}, orderId, { name, note, bytes: Buffer.from(bytes) });
   });
@@ -242,7 +243,8 @@ function registerIpc() {
     if (r.canceled || !r.filePath) return null;
     if (format === 'svg') { fs.writeFileSync(r.filePath, String(text)); return r.filePath; }
     const { buildDesignPdf } = require('./lib/designPdf');
-    const { pdf } = await buildDesignPdf(scene, { cut: 'spot', title: name });
+    // several pages: one scene per page, joined into one PDF
+    const pdf = Array.isArray(scene) ? await joinedPdf(scene, 'spot', name) : (await buildDesignPdf(scene, { cut: 'spot', title: name })).pdf;
     if (format === 'pdf') { fs.writeFileSync(r.filePath, pdf); return r.filePath; }
     const gs = require('./lib/ghostscript');
     const g = await gs.run(['-sDEVICE=eps2write', '-dNoOutputFonts', '-sOutputFile=/out/art.eps', '/in/art.pdf'], { files: { '/in/art.pdf': pdf }, outputs: ['/out/art.eps'] });
@@ -250,6 +252,63 @@ function registerIpc() {
     fs.writeFileSync(r.filePath, g.out['/out/art.eps']);
     return r.filePath;
   });
+  // one PDF from several page scenes (multi-page designs)
+  const joinedPdf = async (scenes, cut, title) => {
+    const { buildDesignPdf } = require('./lib/designPdf');
+    const { PDFDocument } = require('pdf-lib');
+    const out = await PDFDocument.create();
+    out.setTitle(title || 'InkSign design'); out.setCreator('InkSign');
+    for (const sc of scenes) {
+      const one = await PDFDocument.load((await buildDesignPdf(sc, { cut, title })).pdf);
+      for (const pg of await out.copyPages(one, one.getPageIndices())) out.addPage(pg);
+    }
+    return Buffer.from(await out.save({ useObjectStreams: false }));
+  };
+  ipcMain.handle('design:pagesPdf', async (_e, scenes, cut, title) => (await joinedPdf(scenes, cut || 'omit', title)).toString('base64'));
+  // ---- backup & restore (Settings › Backup) ----
+  const backup = require('./backup');
+  const dataDir = () => app.getPath('userData');
+  ipcMain.handle('backup:state', () => {
+    const b = store.getSettings().backup || {};
+    return { folder: b.folder || '', auto: !!b.auto, last: b.folder ? backup.lastBackup(b.folder) : null };
+  });
+  ipcMain.handle('backup:pickFolder', async () => {
+    const r = await dialog.showOpenDialog(win, { title: 'Where should backups go? (your Nextcloud folder is a good place)', properties: ['openDirectory', 'createDirectory'] });
+    return r.canceled ? null : r.filePaths[0];
+  });
+  ipcMain.handle('backup:now', (_e, localStore, folder) => {
+    const f = folder || (store.getSettings().backup || {}).folder;
+    if (!f) throw new Error('Pick the backup folder first');
+    return backup.write(f, backup.collect(dataDir(), localStore || {}));
+  });
+  ipcMain.handle('backup:restore', async () => {
+    shop.requireOwner();
+    const b = store.getSettings().backup || {};
+    const r = await dialog.showOpenDialog(win, { title: 'Restore InkSign from a backup', defaultPath: b.folder || undefined, filters: [{ name: 'InkSign backup', extensions: ['inksign-backup'] }], properties: ['openFile'] });
+    if (r.canceled || !r.filePaths[0]) return null;
+    const data = backup.read(r.filePaths[0]);
+    const out = backup.restore(dataDir(), data);
+    return { ...out, from: r.filePaths[0], at: data.at, host: data.host };
+  });
+  // the daily automatic backup (the renderer sends its saved presets with it)
+  ipcMain.handle('backup:auto', (_e, localStore) => {
+    const b = store.getSettings().backup || {};
+    if (!b.auto || !b.folder) return null;
+    const last = backup.lastBackup(b.folder);
+    if (last && Date.now() - last.at < 20 * 3600 * 1000) return null;
+    try { return backup.write(b.folder, backup.collect(dataDir(), localStore || {})); } catch (e) { return { error: e.message }; }
+  });
+  // crash recovery: the open designs with unsaved changes, written every so often
+  const autoFile = () => path.join(app.getPath('userData'), 'autosave', 'designs.json');
+  ipcMain.handle('design:autosave', (_e, data) => {
+    const f = autoFile();
+    fs.mkdirSync(path.dirname(f), { recursive: true });
+    if (!data || !data.tabs || !data.tabs.length) { fs.rmSync(f, { force: true }); return; }
+    fs.writeFileSync(`${f}.tmp`, JSON.stringify(data));
+    fs.renameSync(`${f}.tmp`, f);
+  });
+  ipcMain.handle('design:recover', () => { try { return JSON.parse(fs.readFileSync(autoFile(), 'utf8')); } catch { return null; } });
+  ipcMain.handle('design:dropRecovery', () => { fs.rmSync(autoFile(), { force: true }); });
   // RIP and print the design: builds the PDF and queues it on the printer (HP Latex, Xerox, …)
   ipcMain.handle('design:print', async (_e, deviceId, scene, job = {}) => {
     const d = store.getDevice(deviceId);
@@ -311,11 +370,15 @@ function registerIpc() {
       if (job.intent != null && job.intent !== '') options.intent = Number(job.intent);
     }
     const repeat = Math.max(1, Math.min(50, Math.round(Number(job.repeat) || 1)));
+    const c = job.cost || null;
+    const usage = c ? { kind: 'wide', media: job.media || '', rollWidthIn: (job.mediaWidthMm || 0) / 25.4, lengthFt: c.feet || 0, mediaSqFt: c.mediaSqFt || 0, printedSqFt: c.printedSqFt || 0, inkMl: c.inkMl || 0, mediaCost: c.mediaCost || 0, inkCost: c.inkCost || 0 } : null;
+    const feet = layout ? (layout.usedL || 0) / 25.4 / 12 : 0;
     const out = [];
     for (let i = 0; i < repeat; i++) {
       out.push(queue.add({ deviceId, action: 'file', filePath: file, name: repeat > 1 ? `${job.name || 'Print'} (${i + 1} of ${repeat})` : (job.name || 'Print'),
         options, hold: job.sendMode === 'hold', holdMessage: job.sendMode === 'hold' ? 'Held — press Release to print' : undefined, inkflow: job.inkflow || null,
-        meta: layout ? { feet: (layout.usedL || 0) / 25.4 / 12 } : null }));
+        usage,
+        meta: layout ? { feet, rollId: job.rollId || undefined, costCents: c ? Math.round(((c.mediaCost || 0) + (c.inkCost || 0)) * 100) : 0, costNote: `${job.media || 'Media'} ${feet.toFixed(1)} ft + ink — ${job.name || 'Print'}` } : null }));
     }
     return out;
   });
@@ -328,6 +391,14 @@ function registerIpc() {
   ipcMain.handle('hpprof:build', (_e, o) => { shop.requireOwner(); return hpProf.build(o); });
   ipcMain.handle('hpprof:topups', () => hpProf.topups());
   ipcMain.handle('hpprof:topupBuild', (_e, o) => { shop.requireOwner(); return hpProf.topupBuild(o); });
+  // the customer proof as a PDF to save (File › Save proof PDF…)
+  ipcMain.handle('design:saveProof', async (_e, scene, info) => {
+    const pdf = await require('./lib/proofPdf').buildProofPdf(scene, { shop: store.getSettings().shopName || 'The Ink Stop', ...info });
+    const r = await dialog.showSaveDialog(win, { title: 'Save the proof', defaultPath: `${safeName(info.title || 'Design')} proof.pdf`, filters: [{ name: 'PDF', extensions: ['pdf'] }] });
+    if (r.canceled || !r.filePath) return null;
+    fs.writeFileSync(r.filePath, pdf);
+    return r.filePath;
+  });
   ipcMain.handle('design:pdfBytes', async (_e, scene, cut) => {
     const { buildDesignPdf } = require('./lib/designPdf');
     return (await buildDesignPdf(scene, { cut: cut || 'spot' })).pdf.toString('base64');
@@ -492,6 +563,12 @@ function registerIpc() {
     return drivers.get(d.driver).areaTest({ ...d.config, ...ov, ...shift }, paths);
   });
   // Poll size: read the loaded media size from the cutter
+  ipcMain.handle('cutter:sensorCheck', async (_e, id, level) => {
+    const d = cutterOf(id);
+    if (d.config?.hpglStyle !== 'titan') throw new Error('The sensor check is for the Titan');
+    if (store.getJobs().some((j) => j.deviceId === id && j.status === 'sending')) throw new Error(`${d.name} is busy with a job — wait for it to finish`);
+    return drivers.get(d.driver).sensorCheck(d.config, level);
+  });
   ipcMain.handle('cutter:pollSize', async (_e, id) => {
     const d = cutterOf(id);
     return drivers.get(d.driver).pollSize(d.config);

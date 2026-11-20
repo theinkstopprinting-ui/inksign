@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import ShopSettings from './ShopSettings.jsx';
+import BackupCard from './BackupCard.jsx';
 
 const api = window.inksign;
 const clean = (m) => String(m || '').replace(/^Error invoking remote method '[^']+': (Error: )?/, '');
@@ -100,6 +101,8 @@ export default function Settings({ devices, onUsersChanged }) {
       </section>
 
       <ShopSettings s={s} setS={setS} onUsersChanged={onUsersChanged} />
+
+      <BackupCard />
 
       <section className="card">
         <h2 className="card-title">Updates</h2>

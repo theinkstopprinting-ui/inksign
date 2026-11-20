@@ -347,6 +347,44 @@ function grommets(doc, ids, pts, diaMm, color) {
   return { doc: { ...doc, objects: [...doc.objects, o] }, ids: [o.id], count: pts.length };
 }
 
+// ---------- Outlining module (VinylMaster): several outlines and an inline in one step ----------
+export function outlineSet(doc, ids, { count = 1, distMm = 3, colors = ['#ffffff'], inlineMm = 0, inlineColor = '#ffffff', corners = 'round' } = {}) {
+  let out = doc;
+  const n = Math.max(0, Math.min(6, Math.round(Number(count) || 0)));
+  const made = [];
+  for (let k = n; k >= 1; k--) {
+    const r = outline(out, ids, { distMm: k * distMm, corners, color: colors[(k - 1) % colors.length] || '#ffffff' });
+    out = r.doc; made.push(...r.ids);
+  }
+  if (inlineMm > 0) { const r = outline(out, ids, { distMm: -inlineMm, corners, color: inlineColor }); out = r.doc; made.push(...r.ids); }
+  if (!made.length) throw new Error('Set at least one outline or an inline');
+  return { doc: out, ids: made };
+}
+
+// ---------- Banner finishing (from the old Wide Format screen) ----------
+/**
+ * Hems and grommets for a banner. With hemMm the page grows by the hem on every side and the art moves
+ * in with it, and guides mark the fold lines. Grommets go round the page, centred in the hem (or
+ * insetMm in from the edge when there is no hem), about every spacingMm.
+ */
+export function bannerFinish(doc, { hemMm = 25.4, grommets: withGrommets = true, spacingMm = 609.6, insetMm = null, diaMm = 9.5 } = {}) {
+  const hem = Math.max(0, Number(hemMm) || 0);
+  let out = doc;
+  if (hem > 0) {
+    out = {
+      ...out,
+      page: { ...out.page, w: out.page.w + 2 * hem, h: out.page.h + 2 * hem },
+      objects: out.objects.map((o) => ({ ...o, x: o.x + hem, y: o.y + hem })),
+      guides: { x: [...(out.guides?.x || []).map((g) => g + hem), hem, out.page.w + hem], y: [...(out.guides?.y || []).map((g) => g + hem), hem, out.page.h + hem] },
+      marks: out.marks,
+    };
+  }
+  out = { ...out, finish: { hemMm: hem, grommets: !!withGrommets, spacingMm } };
+  if (!withGrommets) return { doc: out, ids: [] };
+  const inset = insetMm != null ? insetMm : hem > 0 ? hem / 2 : 12.7;
+  return rectFinisher(out, [], { insetMm: inset, spacingMm, diaMm, usePage: true });
+}
+
 // ---------- Trim marks ----------
 export function trimMarks(doc, ids, { offsetMm = 3, lengthMm = 6, usePage = false } = {}) {
   const b = usePage || !ids.length ? { minX: 0, minY: 0, maxX: doc.page.w, maxY: doc.page.h } : bounds(sel(doc, ids).flatMap(placedPaths));

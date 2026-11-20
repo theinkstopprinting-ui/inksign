@@ -3,7 +3,7 @@
 // the cutter — so the preview, the Area Test and the cut all come from the same numbers.
 //
 // Geometry is in mm. X runs along the roll (the feed), Y across it. A job's paths start at (0, 0).
-import { bounds, isClosed, sortCutOrder, weedBorder, tileJob, totalLength } from './geometry.js';
+import { bounds, isClosed, sortCutOrder, weedBorder, weedLines, tileJob, totalLength } from './geometry.js';
 import { weld, groupShapes } from './cuttools.js';
 
 export const MM = 25.4;
@@ -28,6 +28,8 @@ export const DEFAULTS = {
   weedBox: false,        // a box around the job
   speedWeed: false,      // the box plus lines between rows, so the waste comes off in strips
   weedOffsetMm: 5,
+  weedLines: false,      // cuts across the waste every so often, so it peels off in sections
+  weedLineSpacingMm: 76.2, weedLineDir: 'vertical',
   easyLift: false,       // a short cut inside each hole (the middles of O, A, e…) to lift it out
   regMarks: false,       // small squares in the same place on every color, to line the layers up
   cutHolesFirst: true,   // insides before outsides, and nearest-next ordering
@@ -141,6 +143,7 @@ export function planCut(groups, opts = {}) {
       if (o.speedWeed) extra.push(...rowLines(art, bb));
       extra.push(border);
     }
+    if (o.weedLines) extra.push(...weedLines(art, { marginMm: (o.weedBox || o.speedWeed) ? Number(o.weedOffsetMm) || 0 : 3, spacingMm: Number(o.weedLineSpacingMm) || 76.2, direction: o.weedLineDir === 'horizontal' ? 'horizontal' : 'vertical' }));
     paths = [...art, ...marks.map((m) => m.slice()), ...extra];
 
     // as it will sit on the roll
